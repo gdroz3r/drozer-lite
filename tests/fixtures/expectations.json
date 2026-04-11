@@ -1,0 +1,71 @@
+{
+  "$schema_note": "Per-fixture expectations for benchmark validation. Each entry pins the profile that should be auto-detected (or explicitly set) and the canonical vulnerability_type the LLM should report on the vulnerable case. The clean case must report ZERO matching findings — extra non-matching findings are tolerated.",
+  "fixtures": [
+    {
+      "profile": "universal",
+      "auto_detect": true,
+      "vulnerable_type": "missing_access_control",
+      "vulnerable_function": "setOwner"
+    },
+    {
+      "profile": "signature",
+      "auto_detect": true,
+      "vulnerable_type": "signature_replay",
+      "vulnerable_function": "claim"
+    },
+    {
+      "profile": "vault",
+      "auto_detect": true,
+      "vulnerable_type": "share_inflation",
+      "vulnerable_function": "deposit"
+    },
+    {
+      "profile": "lending",
+      "auto_detect": true,
+      "vulnerable_type": "missing_access_control",
+      "vulnerable_function": "borrow"
+    },
+    {
+      "profile": "dex",
+      "auto_detect": true,
+      "vulnerable_type": "missing_slippage_protection",
+      "vulnerable_function": "swap"
+    },
+    {
+      "profile": "cross-chain",
+      "auto_detect": true,
+      "vulnerable_type": "missing_destination_check",
+      "vulnerable_function": "lzReceive"
+    },
+    {
+      "profile": "governance",
+      "auto_detect": true,
+      "vulnerable_type": "signature_replay",
+      "vulnerable_function": "castVote"
+    },
+    {
+      "profile": "reentrancy",
+      "auto_detect": true,
+      "vulnerable_type": "reentrancy",
+      "vulnerable_function": "withdraw"
+    },
+    {
+      "profile": "oracle",
+      "auto_detect": true,
+      "vulnerable_type": "oracle_staleness",
+      "vulnerable_function": "getPrice"
+    },
+    {
+      "profile": "math",
+      "auto_detect": false,
+      "vulnerable_type": "decimal_scaling_mismatch",
+      "vulnerable_function": "addReward"
+    },
+    {
+      "profile": "gaming",
+      "auto_detect": true,
+      "vulnerable_type": "timestamp_dependence",
+      "vulnerable_function": "drawWinner"
+    }
+  ]
+}

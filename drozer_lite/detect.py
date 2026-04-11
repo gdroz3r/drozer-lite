@@ -39,9 +39,13 @@ def _load_profiles_config() -> dict:
 
 
 def _compile_patterns(config: dict) -> dict[ProfileName, list[re.Pattern[str]]]:
+    """Compile profile regex patterns. Case-insensitive — Solidity casing
+    varies between identifiers (`raffle` vs `Raffle`, `bridge` vs `Bridge`)
+    and we want a single keyword set to match either form. The threshold
+    (default 3) prevents single-keyword false positives."""
     compiled: dict[ProfileName, list[re.Pattern[str]]] = {}
     for name, body in config.get("profiles", {}).items():
-        compiled[name] = [re.compile(p) for p in body.get("patterns", [])]
+        compiled[name] = [re.compile(p, re.IGNORECASE) for p in body.get("patterns", [])]
     return compiled
 
 
