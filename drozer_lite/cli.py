@@ -109,6 +109,26 @@ def build_parser() -> argparse.ArgumentParser:
         help="Print the known vulnerability type vocabulary",
     )
 
+    # `benchmark`
+    bench = sub.add_parser(
+        "benchmark",
+        help=(
+            "Run drozer-lite against the bundled fixture corpus and report "
+            "vulnerable-detection / clean-cleanliness rates. Costs ~22 "
+            "Anthropic API calls per run."
+        ),
+    )
+    bench.add_argument(
+        "--model",
+        default="claude-opus-4-5",
+        help="Anthropic model identifier (default: claude-opus-4-5)",
+    )
+    bench.add_argument(
+        "--output",
+        "-o",
+        help="Write the benchmark report to a file instead of stdout",
+    )
+
     return parser
 
 
@@ -175,11 +195,38 @@ def cmd_list_profiles(args: argparse.Namespace) -> int:  # noqa: ARG001
 
 
 def cmd_list_vocabulary(args: argparse.Namespace) -> int:  # noqa: ARG001
-    # Build Phase 1 scaffold: the real list comes from drozer_lite.vocab in Build Phase 4.
-    print(
-        "[drozer-lite] Build Phase 1 scaffold — vocabulary list lands in Build Phase 4. "
-        "See drozer_lite/vocab.py when populated."
-    )
+    from drozer_lite.vocab import VOCABULARY
+
+    print(f"drozer-lite native vocabulary ({len(VOCABULARY)} tags):\n")
+    for tag, entry in sorted(VOCABULARY.items()):
+        refs = []
+        if entry.swc_id:
+            refs.append(entry.swc_id)
+        if entry.cwe_id:
+            refs.append(entry.cwe_id)
+        ref_str = f" [{', '.join(refs)}]" if refs else ""
+        print(f"  {tag}{ref_str}")
+        print(f"      {entry.description}")
+    return 0
+
+
+def cmd_benchmark(args: argparse.Namespace) -> int:
+    from drozer_lite.benchmark import format_report, run_benchmark
+
+    print("[drozer-lite] running benchmark — this will make Anthropic API calls.", file=sys.stderr)
+    print(f"  model: {args.model}", file=sys.stderr)
+    report = run_benchmark(model=args.model)
+    rendered = format_report(report)
+
+    if args.output:
+        Path(args.output).write_text(rendered, encoding="utf-8")
+        print(f"[drozer-lite] wrote benchmark report to {args.output}", file=sys.stderr)
+    else:
+        print(rendered)
+
+    # Non-zero exit if anything missed.
+    if report.vulnerable_passed < report.total or report.clean_clean < report.total:
+        return 1
     return 0
 
 
@@ -191,6 +238,7 @@ def main(argv: list[str] | None = None) -> int:
         "audit": cmd_audit,
         "list-profiles": cmd_list_profiles,
         "list-vocabulary": cmd_list_vocabulary,
+        "benchmark": cmd_benchmark,
     }
     handler = dispatch.get(args.command)
     if handler is None:
