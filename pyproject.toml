@@ -1,0 +1,73 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "drozer-lite"
+version = "0.1.0"
+description = "Fast, deterministic Solidity pattern scanner derived from empirical audit gap analysis."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+authors = [
+    { name = "gdroz3r" },
+]
+keywords = [
+    "solidity",
+    "smart-contract",
+    "security",
+    "audit",
+    "static-analysis",
+    "ethereum",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Security",
+    "Topic :: Software Development :: Quality Assurance",
+]
+dependencies = [
+    "anthropic>=0.40.0",
+    "jsonschema>=4.20.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "ruff>=0.1.0",
+    "mypy>=1.7.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/gdroz3r/drozer-lite"
+Repository = "https://github.com/gdroz3r/drozer-lite"
+Issues = "https://github.com/gdroz3r/drozer-lite/issues"
+
+[project.scripts]
+drozer-lite = "drozer_lite.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["drozer_lite*"]
+exclude = ["tests*", "examples*"]
+
+[tool.setuptools.package-data]
+drozer_lite = ["schemas/*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP", "B"]

@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Deterministic protocol-type detection patterns. Each profile lists regex patterns; a match against the source contributes to the profile's score. The top-scoring profile(s) above threshold are loaded alongside the always-on universal profile.",
+  "threshold": 3,
+  "profiles": {
+    "signature": {
+      "patterns": [
+        "\\bEIP712\\b",
+        "\\bpermit\\s*\\(",
+        "\\becrecover\\s*\\(",
+        "isValidSignature",
+        "\\bpermitWitnessTransferFrom\\b",
+        "\\b_hashTypedDataV4\\b",
+        "\\bDOMAIN_SEPARATOR\\b"
+      ],
+      "description": "Meta-transactions, permit flows, EIP-712 signature verification."
+    },
+    "vault": {
+      "patterns": [
+        "\\bERC4626\\b",
+        "\\btotalAssets\\b",
+        "\\bpreviewDeposit\\b",
+        "\\bpreviewWithdraw\\b",
+        "\\bconvertToShares\\b",
+        "\\bconvertToAssets\\b",
+        "\\bfunction\\s+deposit\\s*\\(",
+        "\\bfunction\\s+withdraw\\s*\\("
+      ],
+      "description": "ERC-4626 / share-based vaults."
+    },
+    "lending": {
+      "patterns": [
+        "\\bborrow\\b",
+        "\\bliquidate\\b",
+        "\\bcollateral\\b",
+        "\\bhealthFactor\\b",
+        "\\bLTV\\b",
+        "\\bdebtToken\\b",
+        "\\binterestRate\\b"
+      ],
+      "description": "Lending markets, collateral valuation, liquidation."
+    },
+    "dex": {
+      "patterns": [
+        "\\bswap\\b",
+        "\\baddLiquidity\\b",
+        "\\bremoveLiquidity\\b",
+        "\\bamountOutMin\\b",
+        "IUniswapV[23]",
+        "\\bISwapRouter\\b",
+        "\\bsqrtPriceX96\\b"
+      ],
+      "description": "AMM / DEX integrations, swap routers, liquidity pools."
+    },
+    "cross-chain": {
+      "patterns": [
+        "\\blzReceive\\b",
+        "\\bccipReceive\\b",
+        "\\bsetPeer\\b",
+        "\\bsetTrustedRemote\\b",
+        "\\bwormhole\\b",
+        "\\bIReceiver\\b",
+        "\\bbridge\\b"
+      ],
+      "description": "Cross-chain message passing (LayerZero, CCIP, Wormhole, etc.)."
+    },
+    "governance": {
+      "patterns": [
+        "\\bpropose\\s*\\(",
+        "\\bcastVote\\s*\\(",
+        "\\bquorum\\b",
+        "\\bdelegate\\s*\\(",
+        "\\bGovernor\\b",
+        "\\bTimelock\\b",
+        "\\bvotingPower\\b"
+      ],
+      "description": "On-chain governance, voting, delegation, timelocks."
+    }
+  }
+}
