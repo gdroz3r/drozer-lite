@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from drozer_lite import checklist, detect, llm, prompt, validate
+from drozer_lite import checklist, detect, llm, prompt, validate, vocab
 
 EXCLUDED_DIR_NAMES = frozenset(
     {
@@ -116,8 +116,11 @@ def _collect_sol_files(path: Path, max_bytes: int) -> tuple[list[tuple[str, str]
 
 
 def _to_finding(raw: dict[str, Any]) -> Finding:
+    raw_type = raw["vulnerability_type"]
+    canonical, was_mapped = vocab.canonicalize(raw_type)
+    entry = vocab.lookup(canonical) if was_mapped else None
     return Finding(
-        vulnerability_type=raw["vulnerability_type"],
+        vulnerability_type=canonical if was_mapped else raw_type,
         affected_function=raw["affected_function"],
         affected_file=raw["affected_file"],
         severity=raw["severity"],
@@ -125,9 +128,9 @@ def _to_finding(raw: dict[str, Any]) -> Finding:
         line_hint=raw.get("line_hint"),
         confidence=raw.get("confidence", "MEDIUM"),
         source_profile=raw.get("source_profile", "universal"),
-        swc_id=raw.get("swc_id"),
-        cwe_id=raw.get("cwe_id"),
-        original_type=raw.get("original_type"),
+        swc_id=raw.get("swc_id") or (entry.swc_id if entry else None),
+        cwe_id=raw.get("cwe_id") or (entry.cwe_id if entry else None),
+        original_type=raw_type if was_mapped and canonical != raw_type else raw.get("original_type"),
     )
 
 
@@ -185,7 +188,13 @@ def audit_source(
         result.warnings.append(f"schema validation failed: {exc}")
         return result
 
-    result.findings = [_to_finding(f) for f in parsed.get("findings", [])]
+    raw_findings = [_to_finding(f) for f in parsed.get("findings", [])]
+
+    # Inline dedup — tags findings with cluster metadata, sorts representatives first.
+    from drozer_lite import dedup  # local import to avoid circular dep at import time
+
+    deduped, dedup_stats = dedup.dedup_findings(raw_findings)
+    result.findings = deduped
     result.stats = {
         "llm_calls": 1,
         "wall_time_sec": round(wall, 2),
@@ -194,6 +203,9 @@ def audit_source(
         "output_tokens": response.output_tokens,
         "cached_tokens": response.cached_tokens,
         "model": response.model,
+        "dedup_total": dedup_stats.total_findings,
+        "dedup_representatives": dedup_stats.representatives,
+        "dedup_merged_away": dedup_stats.merged_away,
     }
     return result
 

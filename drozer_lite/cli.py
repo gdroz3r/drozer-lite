@@ -140,17 +140,14 @@ def cmd_audit(args: argparse.Namespace) -> int:
         )
 
     if args.format not in available_formats():
-        # Phase 3 only ships the markdown adapter; json/sarif/forefy land in Phase 4.
         print(
-            f"[drozer-lite] WARN: --format {args.format!r} adapter not yet implemented "
-            f"(Phase 4). Falling back to markdown.",
+            f"[drozer-lite] ERROR: unknown format {args.format!r}. "
+            f"Available: {', '.join(available_formats())}",
             file=sys.stderr,
         )
-        rendered_format = "markdown"
-    else:
-        rendered_format = args.format
+        return 2
 
-    rendered = emit(result, rendered_format)
+    rendered = emit(result, args.format)
 
     if args.output:
         Path(args.output).write_text(rendered, encoding="utf-8")

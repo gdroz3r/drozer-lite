@@ -23,10 +23,16 @@ _REGISTRY: dict[str, AdapterFn] = {}
 
 
 def _bootstrap_default_adapters() -> None:
-    """Register the markdown adapter (Phase 3). Other adapters land in Phase 4."""
+    """Register the four built-in adapters."""
+    from drozer_lite.adapters.forefy import format_forefy
+    from drozer_lite.adapters.json import format_json
     from drozer_lite.adapters.markdown import format_markdown
+    from drozer_lite.adapters.sarif import format_sarif
 
     _REGISTRY["markdown"] = format_markdown
+    _REGISTRY["json"] = format_json
+    _REGISTRY["sarif"] = format_sarif
+    _REGISTRY["forefy"] = format_forefy
 
 
 _bootstrap_default_adapters()
