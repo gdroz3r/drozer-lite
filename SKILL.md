@@ -38,7 +38,7 @@ Look for these keyword patterns in the concatenated source. Detection is **case-
 | cross-chain | `lzReceive`, `ccipReceive`, `setPeer`, `setTrustedRemote`, `wormhole`, `IReceiver`, `bridge`                                         |
 | governance  | `propose(`, `castVote(`, `quorum`, `delegate(`, `Governor`, `Timelock`, `votingPower`                                                |
 | reentrancy  | `nonReentrant`, `ReentrancyGuard`, `.call{value`, `onERC721Received`, `onERC1155Received`, `tokensReceived`, `ERC777`                |
-| oracle      | `AggregatorV2Interface`/`V3Interface`, `latestRoundData`, `latestAnswer`, `IChainlink`, `priceFeed`, `getPrice`, `oracle`, `IPyth`   |
+| oracle      | `AggregatorV2Interface`/`V3Interface`, `latestRoundData`, `latestAnswer`, `IChainlink`, `priceFeed`, `getPrice`, `oracle`, `IPyth`, `OracleManager`, `IOracleAdapter`, `oracleAdapter`, `IOracle\b`, `getValidatorMetrics`, `setOracle`, `_oracle`, `DefaultOracle`, `oracles/` |
 | math        | `FixedPoint`, `PRBMath`, `mulDiv`, `SafeMath`, `WAD`, `RAY`, `UFixed{N}`, `SD{N}x{N}`, `UD{N}x{N}`                                   |
 | gaming      | `VRFConsumerBase`, `VRFCoordinator`, `randomness`, `raffle`, `lottery`, `requestRandomWords`, `fulfillRandomWords`                   |
 | icp         | **explicit-only** — never auto-select                                                                                                |
@@ -100,7 +100,7 @@ Return a single JSON object matching this schema. By default, no prose around it
 ```json
 {
   "scanner": "drozer-lite",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "profiles_used": ["universal", "vault"],
   "files_analyzed": ["Vault.sol"],
   "findings": [
@@ -124,7 +124,7 @@ Return a single JSON object matching this schema. By default, no prose around it
 ### Field rules
 
 - `scanner` is always `"drozer-lite"`. Do not change it.
-- `version` is `"0.2.0"` (the skill version, not main drozer).
+- `version` is `"0.2.1"` (the skill version, not main drozer).
 - `vulnerability_type` MUST be a snake_case canonical tag from the vocabulary list below. If no tag fits exactly, fall back to a short snake_case description and accept that it will not be canonicalized downstream.
 - `severity` is exactly one of `CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, `INFO`. Uppercase.
 - `confidence` is exactly one of `HIGH`, `MEDIUM`, `LOW`. Uppercase.
