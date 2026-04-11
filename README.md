@@ -4,7 +4,7 @@
 
 drozer-lite is a standalone single-shot auditor for Solidity contracts. It loads a curated checklist of vulnerability patterns — each one derived from a real finding missed during past benchmark audits — and runs a single deterministic LLM pass to produce structured findings. It is designed to drop into any workflow (CLI, CI, Claude Code skill) in minutes.
 
-> **Status: v0.1.0 (early alpha).** The architecture is stable; the checklists are being ported from the main drozer pipeline.
+> **Status: v0.1.0 (early alpha).** Architecture, checklists (180 checks across 13 profiles), LLM pipeline, four output adapters, and the bundled fixture corpus are in place. A real-API benchmark snapshot is pending — see [BENCHMARKS.md](BENCHMARKS.md).
 
 ## Why drozer-lite
 
@@ -107,11 +107,18 @@ New adapters can be contributed as plugins — see `CONTRIBUTING.md`.
 
 drozer-lite is validated against three corpora:
 
-1. **Hand-crafted fixtures** (`tests/fixtures/`) — correctness on textbook vulnerability patterns
-2. **ScaBench curated corpus** — real judged findings from Code4rena, Sherlock, Cantina
-3. **Forefy autonomous-audit** — public benchmark leaderboard
+1. **Hand-crafted fixture corpus** (`tests/fixtures/`) — 11 vulnerable+clean Solidity pairs, one per profile, used as a regression net.
+2. **ScaBench curated corpus** (planned) — judged findings from Code4rena, Sherlock, and Cantina.
+3. **Forefy autonomous-audit benchmark** (planned) — public benchmark leaderboard.
 
-See `BENCHMARKS.md` for scores and per-case breakdowns.
+Run the bundled fixture benchmark locally:
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+./scripts/run-real-benchmark.sh -o BENCHMARKS.md
+```
+
+See [BENCHMARKS.md](BENCHMARKS.md) for the scoring methodology and the latest snapshot.
 
 ## License
 

@@ -15,12 +15,13 @@ Contributions that preserve these properties are welcome. Contributions that add
 
 ## Adding a profile checklist
 
-1. Create `checklists/<your-profile>.md` with one `### Check: <name>` section per pattern.
-2. Each section must describe: (a) what to look for in Solidity terms, (b) why it's a vulnerability, (c) an example of the vulnerable pattern, (d) an example of the clean pattern.
-3. Add the profile's detection regex patterns to `profiles.json` under `profiles.<your-profile>.patterns`.
-4. Add at least one vulnerable and one clean test fixture to `tests/fixtures/<your-profile>/`.
-5. Run `pytest tests/test_detect.py` and `pytest tests/test_audit_end_to_end.py`.
-6. Open a PR with: rationale, source benchmark projects the checks came from, before/after scores if applicable.
+1. Create `checklists/<your-profile>.md` with one `### <CHECK-N>: <Title>` section per pattern. Use the format already in place: **Provenance**, **Pattern**, **Methodology**, **Red flags**.
+2. Each check must trace to a real audit finding — cite the source in the **Provenance** line.
+3. Add the profile's detection regex patterns to `profiles.json` under `profiles.<your-profile>.patterns`. Detection is case-insensitive — pick keywords that appear at least 3 times in real code that uses this protocol type. Add the profile to either `always_loaded` or `explicit_only` if it should bypass auto-detection.
+4. Add the profile name to `cli.AVAILABLE_PROFILES` in `drozer_lite/cli.py`.
+5. Add a vulnerable and clean test fixture to `tests/fixtures/<your-profile>/{vulnerable,clean}.sol` and an entry in `tests/fixtures/expectations.json`.
+6. Run `pytest`.
+7. Open a PR with: rationale, source benchmark project the checks came from, fixture rationale.
 
 ## Adding a vocabulary entry
 
@@ -29,7 +30,7 @@ Edit `drozer_lite/vocab.py` and add a new `VocabEntry` to the `VOCABULARY` dict.
 ## Adding an output adapter
 
 1. Create `drozer_lite/adapters/<your-format>.py` with a single `format_<name>(result: AuditResult) -> str` function.
-2. Register it in `drozer_lite/adapters/__init__.py`.
+2. Register it in `_bootstrap_default_adapters()` in `drozer_lite/adapters/__init__.py`.
 3. Add `<your-format>` to `AVAILABLE_FORMATS` in `drozer_lite/cli.py`.
 4. Add a round-trip test in `tests/test_adapters.py`.
 
@@ -53,7 +54,14 @@ Run the CLI:
 ```bash
 drozer-lite --help
 drozer-lite list-profiles
-drozer-lite audit tests/fixtures/reentrancy_vulnerable.sol
+drozer-lite list-vocabulary
+drozer-lite audit tests/fixtures/reentrancy/vulnerable.sol
+```
+
+Run the benchmark suite (costs real money — needs `ANTHROPIC_API_KEY`):
+
+```bash
+./scripts/run-real-benchmark.sh -o BENCHMARKS.md
 ```
 
 ## Commit and PR conventions
