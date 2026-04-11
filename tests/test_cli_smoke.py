@@ -46,7 +46,7 @@ def test_help_audit() -> None:
 def test_list_profiles() -> None:
     result = run_cli("list-profiles")
     assert result.returncode == 0
-    # All 7 profiles should appear
+    # All 13 profiles should appear
     for profile in (
         "universal",
         "signature",
@@ -55,8 +55,16 @@ def test_list_profiles() -> None:
         "dex",
         "cross-chain",
         "governance",
+        "reentrancy",
+        "oracle",
+        "math",
+        "gaming",
+        "icp",
+        "solana",
     ):
         assert profile in result.stdout
+    assert "always loaded" in result.stdout
+    assert "explicit-only" in result.stdout
 
 
 def test_audit_missing_path() -> None:

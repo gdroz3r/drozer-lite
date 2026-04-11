@@ -64,19 +64,27 @@ Requires `ANTHROPIC_API_KEY` in the environment.
 
 ## Profiles
 
-drozer-lite ships with 7 profiles, each a targeted checklist:
+drozer-lite ships with 13 profiles, each a targeted checklist of empirically derived checks:
 
 | Profile | Trigger patterns | Checks |
 |---|---|---|
-| `universal` | always loaded | access control, reentrancy, tx.origin, unchecked returns, zero-address, integer overflow |
-| `signature` | `EIP712`, `permit`, `ecrecover`, `isValidSignature` | replay, unsigned fields, nonce griefing, cross-chain replay |
-| `vault` | `deposit`, `withdraw`, `shares`, `totalAssets`, `ERC4626` | first depositor, donation attacks, rounding, share inflation |
-| `lending` | `borrow`, `liquidate`, `collateral`, `LTV`, `healthFactor` | liquidation bypass, collateral valuation, bad debt |
-| `dex` | `swap`, `addLiquidity`, `amountOutMin`, `UniswapV3` | slippage, oracle manipulation, sandwich attacks |
-| `cross-chain` | `lzReceive`, `ccipReceive`, `setPeer`, `wormhole` | message replay, trusted remote, sequence ordering |
-| `governance` | `propose`, `cast`, `quorum`, `delegate`, `Governor` | vote buying, flash-loan governance, proposal cancellation |
+| `universal` | always loaded | 95 — access control, semantics, staking, approvals, generic DeFi |
+| `signature` | `EIP712`, `permit`, `ecrecover`, `isValidSignature` | 4 — signer/account gap, EIP-712 typehash, permit front-run |
+| `vault` | `ERC4626`, `totalAssets`, `previewDeposit`, `convertToShares` | 6 — share inflation, lifecycle residue, slippage protection |
+| `lending` | `borrow`, `liquidate`, `collateral`, `LTV`, `healthFactor` | 5 — liquidation timing, accumulator drift, batching boundaries |
+| `dex` | `swap`, `addLiquidity`, `amountOutMin`, `IUniswapV[23]`, `sqrtPriceX96` | 6 — loop denominator staleness, partial fill refunds, slippage asymmetry |
+| `cross-chain` | `lzReceive`, `ccipReceive`, `setPeer`, `wormhole` | 13 — message replay, payload validation, capacity exhaustion |
+| `governance` | `propose`, `castVote`, `quorum`, `delegate`, `Governor`, `Timelock` | 6 — vote replay, quorum types, delegation cleanup |
+| `reentrancy` | `nonReentrant`, `ReentrancyGuard`, `.call{value:`, `onERC721Received`, ERC777 hooks | 5 — token callback hooks, settlement reentrancy, cross-function callbacks |
+| `oracle` | `AggregatorV[23]Interface`, `latestRoundData`, `priceFeed`, `Pyth` | 3 — failure cascading, freshness DoS, measurement asymmetry |
+| `math` | `FixedPoint`, `PRBMath`, `mulDiv`, `WAD`, `RAY`, `UFixed*`, `SD/UD` | 6 — multi-step normalization, formula transposition, decimal scaling |
+| `gaming` | `VRFConsumerBase`, `VRFCoordinator`, `randomness`, `requestRandomWords` | 3 — VRF callback gas, raffle profitability, lottery economics |
+| `icp` | explicit-only (`--profile icp`) | 16 — Internet Computer canister checks (Rust) |
+| `solana` | explicit-only (`--profile solana`) | 12 — Solana / Anchor program checks (Rust) |
 
-Detection is deterministic regex-based. Users can override with `--profile`.
+Detection is deterministic regex-based with a configurable threshold (`profiles.json`). `universal` is always loaded. `icp` and `solana` are never auto-detected — they're for explicit invocation when auditing non-Solidity code with the same checklist format. Pass `--profile <name>` to override auto-detection for any profile.
+
+**Total**: 180 checks across 13 profiles, every check provenance-cited to a real benchmark finding.
 
 ## Output formats
 

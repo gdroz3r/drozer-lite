@@ -30,7 +30,14 @@ AVAILABLE_PROFILES = (
     "dex",
     "cross-chain",
     "governance",
+    "reentrancy",
+    "oracle",
+    "math",
+    "gaming",
+    "icp",
+    "solana",
 )
+EXPLICIT_ONLY_PROFILES = frozenset({"icp", "solana"})
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -131,7 +138,12 @@ def cmd_audit(args: argparse.Namespace) -> int:
 def cmd_list_profiles(args: argparse.Namespace) -> int:  # noqa: ARG001
     print("Available profiles:")
     for p in AVAILABLE_PROFILES:
-        marker = "  (always loaded)" if p == "universal" else ""
+        if p == "universal":
+            marker = "  (always loaded)"
+        elif p in EXPLICIT_ONLY_PROFILES:
+            marker = "  (explicit-only — pass --profile to load)"
+        else:
+            marker = ""
         print(f"  {p}{marker}")
     print(
         "\nRun 'drozer-lite audit <path>' for automatic detection, "
