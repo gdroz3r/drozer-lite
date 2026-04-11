@@ -19,8 +19,17 @@ from drozer_lite.audit import AuditResult
 
 AdapterFn = Callable[[AuditResult], str]
 
-# Populated as adapters are implemented in Build Phase 4.
 _REGISTRY: dict[str, AdapterFn] = {}
+
+
+def _bootstrap_default_adapters() -> None:
+    """Register the markdown adapter (Phase 3). Other adapters land in Phase 4."""
+    from drozer_lite.adapters.markdown import format_markdown
+
+    _REGISTRY["markdown"] = format_markdown
+
+
+_bootstrap_default_adapters()
 
 
 def register(name: str, fn: AdapterFn) -> None:

@@ -114,25 +114,50 @@ def build_parser() -> argparse.ArgumentParser:
 
 def cmd_audit(args: argparse.Namespace) -> int:
     """Run the audit subcommand."""
-    # Build Phase 1 scaffold: the real implementation lands in Build Phase 3.
-    # For now, just validate arguments and print what WOULD happen.
-    print(f"[drozer-lite v{__version__}] audit command received", file=sys.stderr)
-    print(f"  path:    {args.path}", file=sys.stderr)
-    print(f"  format:  {args.format}", file=sys.stderr)
-    print(f"  profile: {args.profile}", file=sys.stderr)
-    print(f"  model:   {args.model}", file=sys.stderr)
-    print("", file=sys.stderr)
-    print(
-        "[drozer-lite] Build Phase 1 scaffold — audit pipeline not yet wired. "
-        "This will call drozer_lite.audit.audit_path() in Build Phase 3.",
-        file=sys.stderr,
-    )
+    from drozer_lite import audit
+    from drozer_lite.adapters import emit, available_formats
 
-    # Validate the path exists so users get early feedback even in scaffold mode.
+    # Validate the path exists early so users get clean errors.
     if args.path != "-" and not Path(args.path).exists():
         print(f"[drozer-lite] ERROR: path not found: {args.path}", file=sys.stderr)
         return 2
-    return 0
+
+    profile_arg = None if args.profile == "auto" else args.profile
+
+    if args.path == "-":
+        source = sys.stdin.read()
+        result = audit.audit_source(
+            [("stdin.sol", source)],
+            profile=profile_arg,
+            model=args.model,
+        )
+    else:
+        result = audit.audit_path(
+            args.path,
+            profile=profile_arg,
+            model=args.model,
+            max_bytes=args.max_bytes,
+        )
+
+    if args.format not in available_formats():
+        # Phase 3 only ships the markdown adapter; json/sarif/forefy land in Phase 4.
+        print(
+            f"[drozer-lite] WARN: --format {args.format!r} adapter not yet implemented "
+            f"(Phase 4). Falling back to markdown.",
+            file=sys.stderr,
+        )
+        rendered_format = "markdown"
+    else:
+        rendered_format = args.format
+
+    rendered = emit(result, rendered_format)
+
+    if args.output:
+        Path(args.output).write_text(rendered, encoding="utf-8")
+    else:
+        print(rendered)
+
+    return 0 if not result.warnings or result.findings else 0
 
 
 def cmd_list_profiles(args: argparse.Namespace) -> int:  # noqa: ARG001
