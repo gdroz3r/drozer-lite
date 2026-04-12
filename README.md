@@ -1,18 +1,19 @@
 # drozer-lite
 
-**A pure Claude Code skill for fast, deterministic Solidity vulnerability scanning.**
+**An open-source Claude Code skill for pattern-level Solidity vulnerability scanning on real, multi-file protocols.**
 
-drozer-lite is a single Claude Code skill that ships a curated checklist of 180 vulnerability patterns across 13 protocol-type profiles. When invoked, it loads the relevant checklist for the target source and reports structured findings — all inside your existing Claude Code session, with no separate API key, no `pip install`, and no extra cost beyond your normal Claude Code usage.
+drozer-lite is a single Claude Code skill that ships a curated checklist of 180 vulnerability patterns across 13 protocol-type profiles. When invoked, it walks any Solidity project, builds an inventory, clusters related contracts, applies the relevant checklist, and reports structured findings with cross-file awareness — all inside your existing Claude Code session, with no separate API key, no `pip install`, no extra cost beyond your normal Claude Code usage.
 
-> **Status**: v0.2.0 (skill conversion). Architecture is stable. Checklists are ported from real benchmark gap analysis. The first community validation runs are pending.
+> **Status**: v0.3.0 (cluster mode). Audits real multi-file protocols up to 1MB / ~100 files. 10-30 min per protocol, zero marginal cost inside Claude Code.
 
 ## Why drozer-lite
 
-Existing LLM-based Solidity auditors either run a full multi-hour pipeline or rely on hand-crafted rules with no empirical grounding. drozer-lite is different:
+Existing LLM-based Solidity auditors either run a full multi-hour pipeline (expensive, slow, closed-source) or rely on hand-crafted rules with no empirical grounding (noisy, incomplete). drozer-lite is different:
 
-- **Empirically curated.** Every check in the bundled checklists originated as a gap-fix after a missed finding in a past benchmark audit (Virtuals, Morph L2, Oku, Superfluid, Perennial V2, Kinetiq, and others). Nothing is speculative.
-- **No extra API key.** drozer-lite is a Claude Code skill — it runs inside your existing session and uses the same model you already pay for. There is no separate `ANTHROPIC_API_KEY` requirement.
-- **Deterministic methodology.** Every invocation follows the same six-step workflow: identify target → detect profile → load checklists → analyze → output JSON → disclaimer.
+- **Empirically curated.** Every check in the bundled checklists originated as a gap-fix after a missed finding in a past benchmark audit (Virtuals, Morph L2, Oku, Superfluid, Perennial V2, Kinetiq, AXION, Lendvest, and others). Nothing is speculative.
+- **Works on real protocols.** Multi-file aware. Clusters related contracts and runs a cross-cluster sweep for bugs that span files (auto-route fallbacks, cross-contract ACL gaps, shared-modifier inconsistency). Up to 1MB / ~100 files per run.
+- **No extra API key.** drozer-lite is a Claude Code skill — it runs inside your existing session and uses the same model you already pay for. Zero marginal cost beyond your normal Claude Code usage.
+- **Deterministic methodology.** Every invocation follows the same 8-step workflow: identify → inventory → detect profile → cluster → per-cluster analysis → cross-cluster sweep → dedup → honest framing.
 - **Developer-shaped.** Default output is canonical JSON that downstream tooling can parse. Markdown variant is one prompt away.
 - **Vendor-neutral vocabulary.** Native tags use well-known terms (`reentrancy`, `tx_origin_auth`, `missing_access_control`) with cross-references to SWC Registry and CWE.
 
@@ -50,14 +51,29 @@ Optional flags you can mention in your prompt (the skill recognizes them):
 | `--profile <name>` | Force a profile: `vault`, `lending`, `dex`, `signature`, `cross-chain`, `governance`, `reentrancy`, `oracle`, `math`, `gaming`, `icp`, `solana` |
 | `--format markdown` | Render the result as a Markdown report instead of JSON |
 
-## How it works
+## How it works (8-step workflow)
 
-1. **Identify** the target `.sol` file(s) (skips `node_modules`, `lib`, `test`, etc.; refuses inputs over 20KB total).
-2. **Detect** the protocol type using a case-insensitive keyword table (threshold = 3 distinct matches per profile). `universal` is always loaded.
-3. **Load** the relevant checklist files from `checklists/`.
-4. **Analyze** every check against the source. Conservative — false positives are worse than misses.
-5. **Output** a single JSON object matching the canonical schema. Markdown variant on request.
-6. **Disclose** the limitations: drozer-lite is one pass over a checklist. It is NOT a full audit.
+1. **Identify the target** — walk `.sol` files (skips `node_modules`, `lib`, `test`, etc.); soft warn at 500KB, hard refuse at 1MB.
+2. **Build inventory** — structural extraction for every file (contracts, functions, state, modifiers, external calls, imports). Cheap, ~30 sec per file.
+3. **Detect profiles** — case-insensitive keyword table (threshold = 3 distinct matches per profile). `universal` is always loaded.
+4. **Cluster the codebase** — group related contracts by inheritance, imports, and directory into 30-50KB clusters.
+5. **Per-cluster analysis** — apply each loaded check against each cluster's full source. Conservative: false positives are worse than misses.
+6. **Cross-cluster sweep** — detect bugs that span clusters (auto-route fallbacks, cross-contract ACL gaps, staleness mismatches). This is the v0.3.0 difference.
+7. **Dedup + output** — structural dedup, canonical JSON (or Markdown variant on request).
+8. **Honest framing** — mandatory disclaimer: drozer-lite is pattern-level only, NOT a full audit.
+
+## Time expectations
+
+| Protocol size | Files | Clusters | Wall-clock |
+|---|---|---|---|
+| Single contract (≤30KB) | 1 | 1 | 3-5 min |
+| Small protocol (≤100KB) | 2-10 | 2-3 | 10-20 min |
+| Medium protocol (≤300KB) | 10-30 | 4-8 | 25-45 min |
+| Large protocol (≤500KB) | 30-60 | 8-15 | 45-75 min |
+| Very large (>500KB) | 60+ | 15+ | 75-120 min (soft warn) |
+| >1MB | — | — | **refuses** — recommends `/droz3r` |
+
+Zero marginal cost inside Claude Code. drozer-lite is a coffee-break tool, not an instant tool. That trade is what makes it useful for real protocols instead of pedagogical toys.
 
 ## Profiles
 
@@ -85,9 +101,10 @@ Detection is case-insensitive. `universal` is always loaded. `icp` and `solana` 
 
 ## What drozer-lite is NOT
 
-- **Not a replacement for a full audit.** It catches pattern-level bugs from a curated checklist. It does not do cross-function state tracing, multi-actor model reasoning, or deep protocol-specific logic analysis. For that, use the full [drozer pipeline](https://github.com/gdroz3r/drozer) (`/droz3r`).
+- **Not a replacement for a full audit.** It catches pattern-level bugs from a curated checklist with cross-file awareness. It does NOT do multi-step actor reasoning, chain-composition analysis, or formal verification. For that, use the full [drozer pipeline](https://github.com/gdroz3r/drozer) (`/droz3r`) or a human auditor on top of drozer-lite's findings.
 - **Not a formal verifier.** It produces heuristic findings based on a curated checklist, not mathematical guarantees.
-- **Not a CLI or library.** drozer-lite v0.1.x shipped a `pip install` CLI; v0.2.0 dropped that in favor of being a pure Claude Code skill. If you need a standalone CLI for CI / non-Claude-Code workflows, fork from the v0.1.0 tag.
+- **Not a CLI or library.** drozer-lite v0.1.x shipped a `pip install` CLI; v0.2.0+ is a pure Claude Code skill. If you need a standalone CLI for CI / non-Claude-Code workflows, fork from the v0.1.0 tag.
+- **Not instant.** A real multi-file protocol run is 10-30 min. That's the cost of cross-file awareness; we chose it deliberately over a "fast single-contract toy" framing.
 
 ## Validation
 
