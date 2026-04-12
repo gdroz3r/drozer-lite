@@ -125,6 +125,7 @@ Apply the keyword detection table below to the WHOLE inventory (not file-by-file
 | oracle      | `AggregatorV[23]Interface`, `latestRoundData`, `latestAnswer`, `IChainlink`, `priceFeed`, `\w*[Gg]etPrice\w*`, `\boracle\w*`, `\w*Oracle\w*`, `IPyth`, `IOracle\w*`, `oracleAdapter`, `IOracleAdapter`, `setOracle\w*`, `_oracle`, `\boracles/`, `IRates`, `exchangeRate\s*\(` |
 | math        | `FixedPoint`, `PRBMath`, `mulDiv`, `SafeMath`, `\bWAD\b`, `\bRAY\b`, `UFixed\w*`, `SD\d+x\d+`, `UD\d+x\d+`, `abdk`, `FullMath`, `MathUpgradeable`, `MathHelper`, `UQ\d+x\d+`, `\bsqrt\s*\(` |
 | gaming      | `VRFConsumerBase`, `VRFCoordinator`, `randomness`, `\w*[Rr]affle\w*`, `\w*[Ll]ottery\w*`, `requestRandomWords`, `fulfillRandomWords`, `ChainlinkVRF`, `VRFV2`, `IVRFCoordinator`, `commitReveal`, `randaoMix` |
+| stableswap  | `StableSwap`, `\bamp\b`, `amplification`, `compute_d`, `compute_y`, `\bnewton\b`, `invariant.*D`, `stableswap_y`, `n_coins.*ann`, `D_prod`, `amp_factor` |
 
 ### Language-specific profiles (auto-load by detected language)
 
@@ -355,7 +356,7 @@ If the user specified `--output <path>`, write to that path instead of the proje
 
 ALWAYS end your response (after the JSON or Markdown report) with this disclaimer, verbatim. Do not soften it. Do not skip it.
 
-> drozer-lite is a pattern-level scanner with cross-file awareness. It catches bugs from a curated checklist of 180 patterns across 13 protocol-type profiles, all derived from real audit findings. It does NOT do multi-step actor reasoning, chain-composition analysis, or formal verification. A clean drozer-lite run is NOT a clean audit. For high-value contracts, use `/droz3r` (the full drozer pipeline) or a human auditor on top of this.
+> drozer-lite is a pattern-level scanner with cross-file awareness. It catches bugs from a curated checklist of 202 patterns across 14 protocol-type profiles, all derived from real audit findings. It does NOT do multi-step actor reasoning, chain-composition analysis, or formal verification. A clean drozer-lite run is NOT a clean audit. For high-value contracts, use `/droz3r` (the full drozer pipeline) or a human auditor on top of this.
 
 Then add a one-line time disclosure:
 
