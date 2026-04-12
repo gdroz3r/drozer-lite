@@ -62,7 +62,7 @@ Or:
 
 ## Where the checks come from
 
-Every check traces to a real missed finding from a past audit benchmark. The initial checklist was ported from the [ScaBench](https://github.com/scabench) curated dataset and the Drozer-v2 internal gap analysis pipeline. From there, each new benchmark audit (Code4rena, Sherlock, etc.) produces a post-mortem: missed findings are classified by root cause, and any gap that is generalizable into a pattern-level check gets added to the relevant profile. Checks that only match a single codebase are rejected — only class-of-bug patterns that fire across protocols are kept.
+Every check traces to a real missed finding from a past audit benchmark. The initial checklist was ported from the [ScaBench](https://github.com/scabench-org/scabench) curated dataset and the Drozer-v2 internal gap analysis pipeline. From there, each new benchmark audit (Code4rena, Sherlock, etc.) produces a post-mortem: missed findings are classified by root cause, and any gap that is generalizable into a pattern-level check gets added to the relevant profile. Checks that only match a single codebase are rejected — only class-of-bug patterns that fire across protocols are kept.
 
 
 
