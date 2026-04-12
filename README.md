@@ -1,21 +1,22 @@
 # drozer-lite
 
-**An open-source Claude Code skill for pattern-level Solidity vulnerability scanning on real, multi-file protocols.**
+**An open-source Claude Code skill for pattern-level smart contract vulnerability scanning — Solidity, Rust, Move, Cairo, Vyper.**
 
-drozer-lite is a single Claude Code skill that ships a curated checklist of 180 vulnerability patterns across 13 protocol-type profiles. When invoked, it walks any Solidity project, builds an inventory, clusters related contracts, applies the relevant checklist, and reports structured findings with cross-file awareness — all inside your existing Claude Code session, with no separate API key, no `pip install`, no extra cost beyond your normal Claude Code usage.
+drozer-lite is a single Claude Code skill that ships a curated checklist of 180+ vulnerability patterns across 13+ protocol-type profiles. When invoked, it detects the target language, walks any smart contract project (single file or multi-file), builds an inventory, clusters related modules, applies the relevant checklist with language-aware red-flag translation, and reports structured findings with cross-file awareness — all inside your existing Claude Code session, with no separate API key, no `pip install`, no extra cost beyond your normal Claude Code usage.
 
-> **Status**: v0.3.0 (cluster mode). Audits real multi-file protocols up to 1MB / ~100 files. 10-30 min per protocol, zero marginal cost inside Claude Code.
+> **Status**: v0.4.0 (multi-language). Audits real multi-file protocols up to 1MB / ~100 files across Solidity, Rust (Anchor/CosmWasm/IC), Move (Aptos/Sui/Initia), Cairo (StarkNet), and Vyper. 10-30 min per protocol, zero marginal cost inside Claude Code.
 
 ## Why drozer-lite
 
 Existing LLM-based Solidity auditors either run a full multi-hour pipeline (expensive, slow, closed-source) or rely on hand-crafted rules with no empirical grounding (noisy, incomplete). drozer-lite is different:
 
-- **Empirically curated.** Every check in the bundled checklists originated as a gap-fix after a missed finding in a past benchmark audit (Virtuals, Morph L2, Oku, Superfluid, Perennial V2, Kinetiq, AXION, Lendvest, and others). Nothing is speculative.
-- **Works on real protocols.** Multi-file aware. Clusters related contracts and runs a cross-cluster sweep for bugs that span files (auto-route fallbacks, cross-contract ACL gaps, shared-modifier inconsistency). Up to 1MB / ~100 files per run.
-- **No extra API key.** drozer-lite is a Claude Code skill — it runs inside your existing session and uses the same model you already pay for. Zero marginal cost beyond your normal Claude Code usage.
-- **Deterministic methodology.** Every invocation follows the same 8-step workflow: identify → inventory → detect profile → cluster → per-cluster analysis → cross-cluster sweep → dedup → honest framing.
-- **Developer-shaped.** Default output is canonical JSON that downstream tooling can parse. Markdown variant is one prompt away.
-- **Vendor-neutral vocabulary.** Native tags use well-known terms (`reentrancy`, `tx_origin_auth`, `missing_access_control`) with cross-references to SWC Registry and CWE.
+- **Empirically curated.** Every check in the bundled checklists originated as a gap-fix after a missed finding in a past benchmark audit. Nothing is speculative.
+- **Multi-language.** Solidity, Rust (Anchor, CosmWasm, IC canisters), Move (Aptos, Sui, Initia), Cairo (StarkNet), Vyper. ~88 checks are language-agnostic patterns; ~10 are EVM-specific. The LLM translates Solidity-phrased red flags to the target language's equivalent automatically.
+- **Works on real protocols.** Multi-file aware. Clusters related contracts/modules and runs a cross-cluster sweep for bugs that span files. Up to 1MB / ~100 files per run.
+- **No extra API key.** drozer-lite is a Claude Code skill — it runs inside your existing session. Zero marginal cost.
+- **Deterministic methodology.** Every invocation follows the same 8-step workflow: identify + detect language → inventory → detect profile → cluster → per-cluster analysis → cross-cluster sweep → dedup → honest framing.
+- **Developer-shaped.** Default output is canonical JSON. Markdown variant on request.
+- **Vendor-neutral vocabulary.** Native tags use well-known terms (`reentrancy`, `missing_access_control`, `missing_signer_check`, `arbitrary_cpi`) with cross-references to SWC Registry and CWE where applicable.
 
 ## Install
 
@@ -53,9 +54,9 @@ Optional flags you can mention in your prompt (the skill recognizes them):
 
 ## How it works (8-step workflow)
 
-1. **Identify the target** — walk `.sol` files (skips `node_modules`, `lib`, `test`, etc.); soft warn at 500KB, hard refuse at 1MB.
-2. **Build inventory** — structural extraction for every file (contracts, functions, state, modifiers, external calls, imports). Cheap, ~30 sec per file.
-3. **Detect profiles** — case-insensitive keyword table (threshold = 3 distinct matches per profile). `universal` is always loaded.
+1. **Identify the target + detect language** — walk source files by extension (`.sol`, `.rs`, `.move`, `.cairo`, `.vy`); auto-detect language; soft warn at 500KB, hard refuse at 1MB.
+2. **Build inventory** — structural extraction for every file (modules, functions, state, guards, external calls, imports). Cheap, ~30 sec per file. Language-aware concept mapping.
+3. **Detect profiles** — case-insensitive keyword table (threshold = 3 distinct matches per profile). `universal` always loaded. Language-specific profiles (`solana`, `icp`) auto-load when Rust framework keywords detected.
 4. **Cluster the codebase** — group related contracts by inheritance, imports, and directory into 30-50KB clusters.
 5. **Per-cluster analysis** — apply each loaded check against each cluster's full source. Conservative: false positives are worse than misses.
 6. **Cross-cluster sweep** — detect bugs that span clusters (auto-route fallbacks, cross-contract ACL gaps, staleness mismatches). This is the v0.3.0 difference.
@@ -124,10 +125,11 @@ Detection is case-insensitive. `universal` is always loaded. `icp` and `solana` 
 
 ## What drozer-lite is NOT
 
-- **Not a replacement for a full audit.** It catches pattern-level bugs from a curated checklist with cross-file awareness. It does NOT do multi-step actor reasoning, chain-composition analysis, or formal verification. For that, use the full [drozer pipeline](https://github.com/gdroz3r/drozer) (`/droz3r`) or a human auditor on top of drozer-lite's findings.
-- **Not a formal verifier.** It produces heuristic findings based on a curated checklist, not mathematical guarantees.
-- **Not a CLI or library.** drozer-lite v0.1.x shipped a `pip install` CLI; v0.2.0+ is a pure Claude Code skill. If you need a standalone CLI for CI / non-Claude-Code workflows, fork from the v0.1.0 tag.
-- **Not instant.** A real multi-file protocol run is 10-30 min. That's the cost of cross-file awareness; we chose it deliberately over a "fast single-contract toy" framing.
+- **Not a replacement for a full audit.** It catches pattern-level bugs from a curated checklist with cross-file awareness. It does NOT do multi-step actor reasoning, chain-composition analysis, or formal verification. For that, use the full [drozer pipeline](https://github.com/gdroz3r/drozer) (`/droz3r`) or a human auditor.
+- **Not a formal verifier.** Heuristic findings from a curated checklist, not mathematical guarantees.
+- **Not a CLI or library.** Pure Claude Code skill since v0.2.0. Fork from the v0.1.0 tag if you need a standalone CLI.
+- **Not instant.** A real multi-file protocol run is 10-30 min. That's the cost of cross-file awareness.
+- **Not equally deep in every language.** Solidity has the deepest checklist coverage (98 universal + 6 profiles). Rust/Anchor and IC have dedicated profiles (12 + 16 checks). Move, Cairo, and Vyper rely on the 88 language-agnostic universal checks with automatic red-flag translation. Coverage depth will grow as benchmarks against non-Solidity protocols are run.
 
 ## Validation
 

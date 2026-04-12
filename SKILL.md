@@ -1,36 +1,65 @@
 ---
 name: drozer-lite
-description: General-purpose pattern-level Solidity vulnerability scanner with cross-file awareness. Walks any Solidity protocol (single contract or multi-file project), builds an inventory, clusters related contracts, applies a curated checklist of 180 vulnerability patterns derived from real benchmark gap analysis across 13 protocol-type profiles, and returns structured findings. USE WHEN the user asks to scan, audit, or review Solidity source for security bugs and wants pattern-level coverage. Designed for protocols up to ~500KB / 100 files. Wall-clock 5-30 min depending on size. Does NOT do multi-step actor reasoning, chain analysis, or formal verification — for that, use the full drozer pipeline (`/droz3r`).
+description: General-purpose pattern-level smart contract vulnerability scanner with cross-file awareness. Walks any smart contract project (Solidity, Rust/Anchor/CosmWasm/IC, Move, Cairo, Vyper — single file or multi-file), builds an inventory, clusters related modules, applies a curated checklist of 180+ vulnerability patterns derived from real benchmark gap analysis across 13+ protocol-type profiles, and returns structured findings. USE WHEN the user asks to scan, audit, or review smart contract source for security bugs and wants pattern-level coverage. Designed for protocols up to ~500KB / 100 files. Wall-clock 5-30 min depending on size. Does NOT do multi-step actor reasoning, chain analysis, or formal verification — for that, use the full drozer pipeline (`/droz3r`).
 ---
 
-# drozer-lite — open-source pattern-level Solidity auditor (v0.3.0, cluster mode)
+# drozer-lite — open-source pattern-level smart contract auditor (v0.4.0, multi-language)
 
-You are about to run a multi-file pattern-level Solidity audit using drozer-lite's curated checklist. Follow this 8-step workflow exactly. Do not invent steps, do not paraphrase the checklist, do not invent findings.
+You are about to run a multi-file pattern-level smart contract audit using drozer-lite's curated checklist. Follow this 8-step workflow exactly. Do not invent steps, do not paraphrase the checklist, do not invent findings.
 
-drozer-lite is the open-source pattern-level slice of the main Drozer-v2 auditor. Every check in the bundled checklists traces to a real audit finding that was missed in past benchmark runs (Virtuals, Morph L2, Oku, Kinetiq, Superfluid, Perennial V2, AXION, Lendvest, and others). The provenance is cited inside each check.
+drozer-lite is the open-source pattern-level slice of the main Drozer-v2 auditor. Every check in the bundled checklists traces to a real audit finding that was missed in past benchmark runs. The provenance is cited inside each check.
 
 drozer-lite is intentionally narrow:
 
-- **Pattern-level checks** drawn from a curated checklist
-- **Cross-file aware** (catches bugs spanning multiple contracts)
+- **Pattern-level checks** drawn from a curated checklist — ~88 checks are language-agnostic, ~10 are Solidity-specific
+- **Multi-language** — Solidity, Rust (Anchor, CosmWasm, IC canisters), Move (Aptos, Sui, Initia), Cairo (StarkNet), Vyper
+- **Cross-file aware** (catches bugs spanning multiple contracts/modules)
 - Does NOT do multi-step actor reasoning, chain composition analysis, or formal verification — that's `/droz3r` territory
 
 The trade-off is on purpose: drozer-lite finds the bugs pattern matching CAN find, fast and reproducibly, without pretending to be a full audit pipeline.
 
 ---
 
-## Step 1 — Identify the target
+## Step 1 — Identify the target and detect language
 
 Determine which file(s) the user wants audited.
 
-- If the user pasted source inline, treat it as a one-file target.
-- If the user referenced a path, walk it. Use Glob `**/*.sol` from that root.
-- Filter out these directories anywhere in the path: `node_modules`, `lib`, `test`, `tests`, `mock`, `mocks`, `script`, `scripts`, `out`, `cache`, `.git`, `.forge`, `broadcast`, `coverage`.
+- If the user pasted source inline, treat it as a one-file target. Detect language from syntax.
+- If the user referenced a path, walk it.
+
+### Language detection (auto, from file extensions)
+
+| Extension(s) | Language | Glob pattern | Also filter out |
+|---|---|---|---|
+| `.sol` | Solidity | `**/*.sol` | `node_modules`, `lib`, `forge-std`, `.forge` |
+| `.rs` | Rust (Anchor / CosmWasm / IC) | `**/*.rs` | `target/`, `.cargo/`, `test_*.rs`, `*_test.rs` |
+| `.move` | Move (Aptos / Sui / Initia) | `**/*.move` | `build/`, `.aptos/`, `tests/` |
+| `.cairo` | Cairo (StarkNet) | `**/*.cairo` | `target/`, `tests/` |
+| `.vy` | Vyper | `**/*.vy` | `tests/` |
+
+Always filter out: `test`, `tests`, `mock`, `mocks`, `script`, `scripts`, `out`, `cache`, `.git`, `coverage`, `broadcast`, `node_modules`.
+
+If a project has mixed languages (e.g. `.sol` + `.rs`), detect the PRIMARY language by file count / byte weight and note the secondary. Load profiles for the primary language; if a secondary language has significant source (>20% by bytes), load its profiles too.
+
 - **Soft warning**: if total source > 500KB, tell the user "this will take ~30+ minutes" and continue.
 - **Hard refusal**: if total source > 1MB, REFUSE. Recommend `/droz3r` (the full drozer pipeline).
-- File suffixes: `.sol` only, unless `--profile icp` (Internet Computer / Rust) or `--profile solana` (Anchor / Rust) is explicitly passed.
 
 If you cannot find any source, ask the user to specify a path or paste source. Do not guess.
+
+### Language determines what "function", "modifier", "state variable" mean in Steps 2-6
+
+| Concept | Solidity | Rust (Anchor/CosmWasm) | Move | Cairo |
+|---|---|---|---|---|
+| Public function | `external`/`public` | `pub fn`, `#[msg(execute)]`, `#[instruction]` | `public entry fun`, `public fun` | `#[external(v0)]`, `fn` in impl |
+| Access control | `onlyOwner`, `onlyRole(R)` modifier | `require!(ctx.accounts.authority == ...)`, `#[access_control]` | `assert!(signer::address_of(s) == @admin)` | `assert(caller == owner)` |
+| State variable | contract-level storage | `Account<'info, T>`, `#[account]` struct fields | `borrow_global<T>`, resource struct fields | `@storage_var` |
+| External call | `.call`, `interface(addr).fn()` | CPI (`invoke`, `invoke_signed`), `CosmosMsg` | `coin::transfer`, module call | syscall, contract call |
+| Reentrancy guard | `nonReentrant`, `ReentrancyGuard` | manual flag, `#[non_reentrant]` in some frameworks | N/A (Move is not reentrant by design) | N/A (Cairo is not reentrant by design) |
+| Import/dependency | `import`, `using...for` | `use`, `mod`, Cargo.toml deps | `use`, `friend` | `use`, imports |
+
+When applying checks from `checklists/universal.md`, **translate the Solidity-phrased red flags to the target language's equivalent**. The METHODOLOGY is language-agnostic; only the SYNTAX differs. For example:
+- UNI-1 says "Missing `onlyOwner`/`onlyRole(...)` on state-changing function" → in Rust, check for missing `require!(authority == ...)` or `#[access_control(...)]`
+- UNI-3 says "Balance/ownership update AFTER `.call` or token transfer" → in Rust, check for CPI invocations before account state updates
 
 ---
 
@@ -40,12 +69,12 @@ Read each in-scope file with the Read tool. Do NOT analyze code yet — only ext
 
 For each file:
 - **Path** and approximate byte size + line count
-- **Contracts** declared (and what they extend)
-- **External / public function signatures** (name + params + visibility + modifiers, no body)
-- **State variables** (name + type + visibility)
-- **Modifiers** declared in this contract
-- **External calls visible**: `.call`, `.transfer`, `.send`, library calls, and named contract calls (e.g. `someContract.someFunction(...)`)
-- **Imports** (which other in-scope files this file depends on)
+- **Modules / contracts / programs** declared (and what they extend / implement)
+- **Public / external function signatures** (name + params + visibility + guards, no body). Use the language's convention from the Step 1 table.
+- **State variables / account structs / storage vars** (name + type + visibility)
+- **Access control mechanisms** (modifiers, assert-based guards, access_control attributes)
+- **External calls visible**: cross-contract calls, CPI, module calls, system calls, delegate calls
+- **Imports / dependencies** (which other in-scope files this file depends on)
 
 Format the inventory like this (keep it terse — this is your context_map for cross-file detection):
 
@@ -97,7 +126,20 @@ Apply the keyword detection table below to the WHOLE inventory (not file-by-file
 | math        | `FixedPoint`, `PRBMath`, `mulDiv`, `SafeMath`, `\bWAD\b`, `\bRAY\b`, `UFixed\w*`, `SD\d+x\d+`, `UD\d+x\d+`, `abdk`, `FullMath`, `MathUpgradeable`, `MathHelper`, `UQ\d+x\d+`, `\bsqrt\s*\(` |
 | gaming      | `VRFConsumerBase`, `VRFCoordinator`, `randomness`, `\w*[Rr]affle\w*`, `\w*[Ll]ottery\w*`, `requestRandomWords`, `fulfillRandomWords`, `ChainlinkVRF`, `VRFV2`, `IVRFCoordinator`, `commitReveal`, `randaoMix` |
 
-**EXPLICIT-ONLY** (never auto-load): `icp`, `solana`. Load only if the user passed `--profile icp` or `--profile solana` literally.
+### Language-specific profiles (auto-load by detected language)
+
+When the detected language is NOT Solidity, auto-load the corresponding language profile:
+
+| Detected language | Auto-load profile | Condition |
+|---|---|---|
+| Rust + Anchor patterns (`declare_id!`, `#[program]`, `#[account]`) | `solana` | Score ≥ 2 Anchor keywords |
+| Rust + IC patterns (`ic_cdk`, `#[update]`, `#[query]`, `candid`) | `icp` | Score ≥ 2 IC keywords |
+| Rust + CosmWasm patterns (`cosmwasm_std`, `#[entry_point]`, `ExecuteMsg`) | load `universal` only (no dedicated CosmWasm profile yet) | — |
+| Move | load `universal` only (no dedicated Move profile yet) | — |
+| Cairo | load `universal` only (no dedicated Cairo profile yet) | — |
+| Vyper | load `universal` + any Solidity profiles that fire (Vyper shares EVM patterns) | — |
+
+`icp` and `solana` profiles are NO LONGER explicit-only. They auto-load when the language detection identifies Anchor or IC canister Rust code. They can still be forced via `--profile` when auto-detection misses.
 
 **Hard rule**: do not lower the threshold to "make a profile fire" because you intuit it might be relevant. If a profile genuinely does not clear the threshold, do not load its checklist. Pattern coverage IS the contract.
 
@@ -152,9 +194,9 @@ For each cluster:
 1. **Read the cluster's source** — Read each file in the cluster fully.
 2. **Read the relevant checklists** — Read `checklists/universal.md` always, plus each auto-loaded profile checklist (`checklists/{profile}.md`).
 3. **Reference the inventory from Step 2** — for cross-cluster bug detection. When the cluster you're analyzing calls a function in another cluster, look up the target's signature in the inventory; you don't need to re-read the other cluster's full source.
-4. **Apply each loaded check** — for each check in the loaded checklists, examine the cluster source. A check matches when ALL of:
-   - The **Pattern** field describes a code construct that exists in the cluster source
-   - The **Red flags** are visible in the source
+4. **Apply each loaded check** — for each check in the loaded checklists, examine the cluster source. **If the target language is not Solidity, translate the check's Solidity-phrased red flags to the equivalent in the target language** using the concept-mapping table from Step 1. The METHODOLOGY is language-agnostic; only the SYNTAX differs. A check matches when ALL of:
+   - The **Pattern** field describes a code construct that exists in the cluster source (in the target language's idiom)
+   - The **Red flags** (or their language-translated equivalents) are visible in the source
    - The **Methodology** describes a reachable exploit path you can trace line by line
 5. **When unsure, prefer NOT to report.** False positives are worse than misses. The user expects high signal, not coverage.
 6. **For each match**, identify:
@@ -230,7 +272,7 @@ Add cross-cluster findings to the same finding pool with `cross_cluster: true` a
 ```json
 {
   "scanner": "drozer-lite",
-  "version": "0.3.2",
+  "version": "0.4.0",
   "profiles_used": ["universal", "reentrancy", "oracle"],
   "files_analyzed": [
     "Token.sol", "Service.sol", "Accountant.sol",
@@ -350,24 +392,29 @@ These are the snake_case tags. Each tag has a fixed meaning and an optional SWC/
 - `cross_chain_address_substitution` — msg.sender reused as a destination-chain identity (incompatible across chains).
 - `msgvalue_unsigned` — msg.value not bound by the signature, allowing executor injection.
 
-### Storage / proxy
-- `uninitialized_proxy` — Logic contract initializer not disabled. (SWC-118)
-- `storage_layout_collision` — Upgradeable contract storage layout changed without preserving slots. (SWC-124)
-- `uninitialized_storage` — Storage variable defaults to zero and an unset state passes guards. (SWC-109)
+### Storage / proxy (EVM-specific — only fire on Solidity/Vyper targets)
+- `uninitialized_proxy` — Logic contract initializer not disabled. (SWC-118) **EVM only.**
+- `storage_layout_collision` — Upgradeable contract storage layout changed without preserving slots. (SWC-124) **EVM only.**
+- `uninitialized_storage` — Storage variable defaults to zero and an unset state passes guards. (SWC-109) *Language-agnostic variant: uninitialized struct/resource fields in Move/Rust.*
 
-### Other
-- `delegatecall_to_untrusted` — delegatecall target is attacker-controllable. (SWC-112)
-- `timestamp_dependence` — Critical logic depends on block.timestamp in a manipulable way. (SWC-116)
-- `missing_event_emission` — State-changing operation does not emit a corresponding event.
-- `front_running` — Same-block front-running enables ordering-dependent profit. (SWC-114)
-- `vrf_callback_gas` — VRF fulfillment callback exceeds the configured gas limit and reverts.
-- `dust_order_dos` — Residual-below-threshold orders block price levels and DoS the book.
-- `pause_time_accumulation` — Time-dependent state continues to accumulate while the protocol is paused.
-- `unbounded_loop` — Loop over user-pushable collection with no upper bound.
-- `irreversible_admin_action` — Admin parameter change with no timelock or two-step apply.
-- `erc165_incomplete_coverage` — supportsInterface does not report all interfaces the contract actually implements (ERC-165 non-compliance).
-- `precision_loss_decimal_conversion` — Scaling between different decimal bases (18↔6, 18↔8, 18↔10) truncates value without rounding direction disclosure.
-- `receive_auto_route_balance_invariant` — receive()/fallback() auto-calls a state-mutating function, breaking any invariant that uses `address(this).balance`. Severity MUST be at least HIGH when the balance is used in a user-facing check.
+### EVM-specific (only fire on Solidity/Vyper targets)
+- `delegatecall_to_untrusted` — delegatecall target is attacker-controllable. (SWC-112) **EVM only.**
+- `receive_auto_route_balance_invariant` — receive()/fallback() auto-calls a state-mutating function, breaking any invariant that uses `address(this).balance`. **EVM only.**
+- `erc165_incomplete_coverage` — supportsInterface does not report all interfaces the contract actually implements. **EVM only.**
+- `precision_loss_decimal_conversion` — Scaling between different decimal bases truncates value without rounding direction disclosure. *Language-agnostic — applies to any fixed-point math.*
+
+### Other (language-agnostic unless noted)
+- `timestamp_dependence` — Critical logic depends on block.timestamp in a manipulable way. (SWC-116) *All chains.*
+- `missing_event_emission` — State-changing operation does not emit a corresponding event/log. *All languages.*
+- `front_running` — Same-block front-running enables ordering-dependent profit. (SWC-114) *All chains.*
+- `vrf_callback_gas` — VRF fulfillment callback exceeds the configured gas limit and reverts. *EVM/Solana.*
+- `dust_order_dos` — Residual-below-threshold orders block price levels and DoS the book. *All languages.*
+- `pause_time_accumulation` — Time-dependent state continues to accumulate while the protocol is paused. *All languages.*
+- `unbounded_loop` — Loop over user-pushable collection with no upper bound. *All languages.*
+- `irreversible_admin_action` — Admin parameter change with no timelock or two-step apply. *All languages.*
+- `missing_signer_check` — Instruction/transaction does not verify the expected signer/authority. *Solana/Move/Cairo specific equivalent of `missing_access_control`.*
+- `arbitrary_cpi` — Cross-program invocation target is attacker-controllable. *Solana equivalent of `delegatecall_to_untrusted`.*
+- `missing_account_validation` — Account constraints (owner, discriminator, seeds) not verified. *Solana/Anchor specific.*
 
 ---
 
@@ -415,7 +462,7 @@ Then the disclaimer.
 4. **Do not** skip the honest framing disclaimer.
 5. **Do not** soften severity ratings to be polite. Use the matrix.
 6. **Do not** call any tool other than Read / Glob to gather source. There is no LLM API key in this skill — you ARE the LLM.
-7. **Do not** auto-select `icp` or `solana` profiles. They are explicit-only.
+7. **Do not** load `icp` or `solana` profiles for Solidity code. They auto-load ONLY when Rust is the detected language and the appropriate framework keywords are present.
 8. **Do not** exceed the 1MB total source budget. Refuse politely and recommend `/droz3r`.
 9. **Do not** skip Step 6 (cross-cluster sweep) — it is the difference between v0.3.0 and v0.2.x.
 10. **Do not** load a profile checklist for every cluster — load each profile checklist ONCE at the start of analysis and reuse it across clusters.
