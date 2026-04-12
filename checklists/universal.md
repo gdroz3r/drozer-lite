@@ -1,8 +1,8 @@
 # Universal Checklist
 
 > Profile: universal
-> Checks: 98
-> Source: ported from Drozer-v2 analyses (provenance cited per check). UNI-96..98 added in v0.3.1 as gap fixes after real-protocol validation. All checks describe generic class-of-bug patterns — never benchmark-specific names.
+> Checks: 110
+> Source: ported from Drozer-v2 analyses (provenance cited per check). UNI-96..98 added in v0.3.1 as gap fixes after real-protocol validation. UNI-99..106 added in v0.4.1 as gap fixes after CosmWasm rental-protocol benchmark validation. UNI-107..110 added in v0.4.2 as gap fixes after CosmWasm DEX benchmark validation. All checks describe generic class-of-bug patterns — never benchmark-specific names.
 
 ## Methodology
 
@@ -29,6 +29,8 @@ Apply adversarially. For every storage variable, every external-facing function,
 - No `require(state == Active)` on lifecycle-sensitive functions
 - Sentinel field defaults (`timestamp == 0`) satisfying `block.timestamp - stored > PERIOD`
 - Re-initialization overwriting finalized data
+- Temporal guard allows editing AFTER a period expires but BEFORE all settlements from that period are finalized — parameter changes (denomination, rate, price) corrupt pending settlements
+- Edit guard checks `expiry < current_time` but not `all_settlements_complete` — the entity appears editable because the period ended, but unsettled obligations still reference the old parameters
 
 ### UNI-3: Classic Reentrancy
 **Provenance**: universal-invariants.md U4 + invariant-templates.md RE-1
@@ -166,6 +168,9 @@ Apply adversarially. For every storage variable, every external-facing function,
 **Red flags**:
 - `if (lastClaim != 0)` used to guard distribution but another path skips setting it
 - Boolean defaulting to `false` where `false` means both "unvalidated" and "failed"
+- Storage map/mapping read for a non-existent key returns zero/default, and the zero value is used downstream without an existence check — e.g., `map.read(user_supplied_key)` returns 0 for an unregistered key, the code hashes 0 with other data, and the hash is used for signature verification. The attacker signs over the zero value to bypass authorization for unregistered keys.
+- A registry lookup (oracle registry, whitelist, role mapping) returns a default value for non-members, but the calling code does not assert the returned value is non-zero/non-default before proceeding. The non-member passes the check by operating on the default value.
+- `let data = storage_map.entry(key).read(); /* data is 0 for missing key */ validate_signature(data, sig);` — the signature is valid over 0, which is a predictable constant, so any key pair can produce a valid signature
 
 ### UNI-19: Temporal Constraint Incompatibility
 **Provenance**: universal-invariants.md U17
@@ -325,6 +330,8 @@ Apply adversarially. For every storage variable, every external-facing function,
 **Methodology**: Check pause mechanics. Confirm at least one exit path remains available (possibly with penalty) in every paused state.
 **Red flags**:
 - `whenNotPaused` on `withdraw()` with no alternative
+- Liquidation/forced-close functions gated by pause — when the protocol is paused, insolvent positions cannot be liquidated, allowing bad debt to accumulate. Risk management functions (liquidation, deleverage) should remain operational during pause
+- Deposit cancellation gated by pause — users who deposited before the pause cannot recover their funds
 
 ### UNI-39: Monotonic State Progression
 **Provenance**: invariant-templates.md TL-1
@@ -693,3 +700,183 @@ Apply adversarially. For every storage variable, every external-facing function,
 - A "rescued" or "cancelled" accumulator variable whose only payout path depends on contract balance growing via future external transfers
 - Comments or docs saying "buffer provides liquidity" or "accumulated value drains to users" but no actual code path produces non-auto-routed inbound value
 **Severity rule (HARD)**: When the balance-based invariant is read in a user-facing function (withdraw, refund, claim, redeem, rescue, confirm, settle), this check MUST be rated at least HIGH. Do NOT downgrade to MEDIUM due to uncertainty about chain-specific native-transfer semantics — the correct finding is HIGH with a note that exploitability depends on operational assumptions the auditor should flag and verify with the protocol team. Severity miscalibration on this pattern is itself a finding-quality bug.
+
+### UNI-99: Approval / Permission Persistence After Action Reversal
+**Provenance**: drozer-lite v0.4.1 — class-of-bug: an action grants a permission as a side effect, and the reversal of that action does not revoke the permission, leaving the actor with unauthorized access.
+**Pattern**: An action (bid, deposit, stake, register, subscribe) grants an approval, role, or allowance as a side effect. The corresponding reversal action (cancel bid, withdraw, unstake, deregister, unsubscribe) removes the primary state entry but does NOT revoke the permission that was granted alongside it. The actor retains the ability to operate on the entity (transfer, spend, execute) despite no longer having a stake or valid reason for access.
+**Methodology**: For every function that grants an approval or permission as a side effect of a primary action:
+1. Identify the corresponding reversal function (cancel, withdraw, remove, unstake, deregister).
+2. Verify the reversal function explicitly removes the same approval/permission.
+3. Check both per-token approval lists AND global operator/role mappings.
+4. If the grant is conditional (e.g., only when `auto_approve` is true), verify the revocation also fires under the same condition.
+**Red flags**:
+- `approvals.push(sender)` in a bid/deposit path but the cancel/refund path only removes the bid entry, not the approval
+- `grantRole(OPERATOR, sender)` on registration but `revokeRole` absent from deregistration
+- `approve(spender, amount)` on stake but no `approve(spender, 0)` on unstake
+- Toggle function (call once to create, call again to cancel) where the first call grants approval and the second call removes the primary record but not the approval
+- Any path where an actor can: (1) perform action to gain permission, (2) reverse action to recover funds, (3) use retained permission to operate on the asset without cost
+
+### UNI-100: Asymmetric Settlement Across Parallel Transfer Paths
+**Provenance**: drozer-lite v0.4.1 — class-of-bug: multiple functions can move the same asset but only one includes payment/settlement logic, allowing the other to bypass payment entirely.
+**Pattern**: A system has two or more functions that transfer ownership or move the same asset (e.g., `transfer` vs `send`, `transferFrom` vs `safeTransferFrom`, `withdraw` vs `emergencyWithdraw`, `redeem` vs `rescue`). One path includes settlement logic (payment to seller, fee deduction, accounting update, reward distribution). Another path transfers the asset without performing the same settlement, creating a bypass.
+**Methodology**: 
+1. Enumerate every function that changes ownership of an asset or moves value out of the contract.
+2. Group these functions by the asset class they operate on.
+3. For each group, build a comparison table: function name | settlement logic present? | fee deducted? | accounting updated? | events emitted?
+4. If ANY function in the group skips settlement that another function performs, flag. Pay special attention to wrapper functions that call a shared internal `_transfer` without the outer settlement layer.
+**Red flags**:
+- `transfer()` includes payment settlement but `send()` calls `_transfer()` directly without settlement
+- `withdraw()` updates accounting but `emergencyWithdraw()` does not
+- Public `_transfer_nft()` helper is callable by approved addresses and bypasses the sale/auction settlement in `transfer_nft()`
+- A function that takes a `recipient` parameter (allowing caller to send to another address) and a parallel function that forces `msg.sender` as recipient — the first may skip payment checks the second enforces
+- Two functions that both call `check_can_send()` but only one settles the associated financial obligation (bid, deposit, escrow)
+
+### UNI-101: Destructive Operation Without Obligation Settlement
+**Provenance**: drozer-lite v0.4.1 — class-of-bug: a burn/delete/close function destroys an entity with active obligations (deposits, rentals, locks), erasing records but not settling or refunding, making deposited funds permanently unrecoverable.
+**Pattern**: A destructive operation (burn, delete, remove, close, self-destruct, deactivate) destroys an entity that carries active obligations — deposits held against it, active rentals or leases, pending reward claims, locked collateral, open orders, or unresolved escrows. The destruction erases the entity's records from storage, but the funds associated with those obligations remain in the contract with no recovery path. Affected users can no longer call cancel/refund/claim because the entity no longer exists.
+**Methodology**: For every destructive function (burn, remove, close, delete, deactivate, self-destruct):
+1. Identify what data is erased (the entity's full storage record, including nested structs, vectors, mappings).
+2. Check whether any of the erased data includes: deposit amounts, active rental/lease records, pending claims, locked collateral, open bids, escrowed funds.
+3. Verify the function checks for zero active obligations BEFORE allowing destruction. Acceptable patterns: `require(obligations.length == 0)`, `require(deposit_amount == 0)`, iterating obligations and refunding each before deletion.
+4. If the function only checks ownership/approval but not obligation status, flag.
+**Red flags**:
+- `burn()` checks `check_can_send()` (ownership) but not whether `rentals.len() > 0` or `bids.len() > 0`
+- `closePosition()` deletes the position record without checking `pendingRewards > 0`
+- `deleteAccount()` while staking/delegation entries still reference the account
+- `remove(tokenId)` erases a token struct that contains a Vec of deposit records
+- Any destructive function where the authorization check is ownership/approval only, without an obligation-settlement check
+
+### UNI-102: Heterogeneous Collection Without Type Discrimination
+**Provenance**: drozer-lite v0.4.1 — class-of-bug: items of different types with different economic parameters are stored in the same collection, and operations iterate without filtering by type, allowing cross-type exploitation (e.g., paying in denomination A but receiving refund in denomination B).
+**Pattern**: A collection (Vec, array, mapping, linked list) stores items of different subtypes, distinguished by a type flag, enum field, or discriminant. Operations that search, iterate, cancel, settle, or finalize items in the collection match by identity fields (address, ID, period) but do NOT filter by the type discriminant. This allows an operation designed for subtype A to match and operate on a subtype B item that has different economic parameters (denomination, rate, fee structure, cancellation policy).
+**Methodology**:
+1. Identify every collection that stores items with a type discriminant field (e.g., `item_type: bool`, `order_side: enum`, `position_type: u8`, `category: u8`).
+2. For every function that searches/iterates the collection, check whether the search predicate includes the type discriminant.
+3. If the search matches by (address + period) or (address + id) but ignores (type), verify whether the matched item's economic parameters (denomination, rate, terms) could differ from what the calling function assumes.
+4. If a function reads denomination/rate/terms from a TYPE-LEVEL config (e.g., `shortterm_rental.denom`) but the matched item was created under a DIFFERENT type's config (e.g., `longterm_rental.denom`), flag as HIGH — this enables cross-denomination value extraction.
+**Red flags**:
+- A `rentals` Vec stores both short-term and long-term entries with a `type` flag, but cancel/finalize functions search by `(address, period)` without checking `type`
+- An order book stores buy and sell orders in the same array with a `side` field, but settlement iterates without filtering by side
+- A positions collection mixes collateralized and uncollateralized positions, but liquidation logic applies uniformly
+- A function reads the denomination from a type-level config struct but the matched item in the shared collection was created under a different type's denomination
+- Cancel function for type A matches a type B item and refunds using type A's denomination instead of the item's stored denomination
+
+### UNI-103: Payment-Gated Transfer Allows Beneficiary Mismatch
+**Provenance**: drozer-lite v0.4.1 — class-of-bug: a transfer function looks up payment amount by recipient address, but the caller can specify any recipient including one with no payment, causing a zero-payment asset transfer.
+**Pattern**: A function combines asset transfer with payment settlement. The payment amount is looked up from a mapping or list keyed by the recipient address (e.g., bids, deposits, escrow entries). The caller can freely specify the recipient parameter. If the recipient has no entry in the payment mapping, the amount defaults to zero and the transfer proceeds without payment to the previous owner. Alternatively, the caller specifies a recipient different from themselves to avoid their own payment being consumed, then cancels their payment entry for a full refund.
+**Methodology**:
+1. For every function that transfers an asset AND looks up a payment amount by a caller-supplied address parameter:
+   a. Check whether the function reverts when no payment entry exists for the specified recipient (amount == 0 case).
+   b. Check whether the function validates that the payment amount meets the listed/required price.
+   c. Check whether the caller is constrained to specify themselves as the recipient, or can specify any address.
+2. If the function proceeds with transfer when `amount == 0` (no matching payment), flag as HIGH — the asset is transferred for free.
+3. If the function does not validate `amount >= listed_price`, flag as HIGH — the asset can be transferred for less than the listed price.
+**Red flags**:
+- `amount = bids[recipient].offer` defaults to 0 when no bid exists, and the function has a branch that proceeds with transfer when `amount == 0`
+- Transfer function accepts `recipient` as a parameter (not forced to `msg.sender`), allowing the caller to route the transfer to an address with no active bid
+- Caller can: (1) place a bid to gain approval, (2) call transfer with a DIFFERENT recipient who has no bid (zero payment), (3) cancel their own bid for full refund
+- No `require(amount >= listed_price)` check between the payment lookup and the ownership transfer
+- The `amount > 0` branch sends payment to the previous owner, but the `amount == 0` branch still transfers ownership
+
+### UNI-104: Numeric Type Width Insufficient for Token Decimals
+**Provenance**: drozer-lite v0.4.1 — class-of-bug: price or amount parameters use a narrower integer type than the token amounts they interact with, making normal-value operations impossible for high-decimal tokens.
+**Pattern**: Price, amount, or rate parameters in message/function signatures use a narrower integer type (e.g., `u64`, `uint64`, `uint32`) than the token amount type used in the contract's arithmetic (e.g., `u128`, `Uint128`, `uint256`). For tokens with 18 decimals, `u64` maxes at ~18.4 tokens — any price above ~$18 for a $1-token is unrepresentable. This creates a functional ceiling where normal-value operations silently fail or are impossible to express.
+**Methodology**:
+1. For every price, amount, or rate parameter in external function signatures and message structs, note the integer type width.
+2. For each such parameter, trace how it's used in arithmetic with token amounts. Note the token amount type (typically the widest type in the system).
+3. If the parameter type is narrower than the token amount type AND the protocol accepts arbitrary user-specified denominations (tokens with varying decimals), flag.
+4. Calculate the practical ceiling: `max_value / 10^decimals` for common decimal counts (6, 8, 18). If the ceiling is below reasonable real-world values for the parameter's purpose (e.g., < $1000 for a rental price), flag.
+**Red flags**:
+- `price_per_day: u64` but `deposit_amount: Uint128` (u128) in the same system
+- `amount: u64` in a withdrawal function but `info.funds[0].amount` is `Uint128`
+- `fee: u64` but fee is multiplied with `Uint128` amounts, silently capping the effective fee range
+- Any `u64` price/amount field in a protocol that accepts arbitrary token denominations (user-chosen, not hardcoded)
+- Withdrawal function requires multiple calls to extract a normal-value deposit because the per-call `amount` parameter is too narrow
+
+### UNI-105: Stored Constraint Not Enforced at Consumption Point
+**Provenance**: drozer-lite v0.4.1 — class-of-bug: a configuration function stores a constraint field (availability window, whitelist, maximum, deadline) but the consuming function that should enforce it never reads or checks it, making the constraint decorative.
+**Pattern**: A configuration or listing function accepts and stores a constraint parameter (available period, whitelist, max participants, allowed tokens, deadline, minimum amount, geographic restriction). The consuming function that should enforce this constraint (reservation, deposit, bid, claim, register) operates on the same entity but never reads or validates the stored constraint. The constraint exists in storage but has zero enforcement — users can bypass it simply by never encountering a check.
+**Methodology**:
+1. For every configuration/listing function, enumerate every field it writes to storage.
+2. For each stored field, classify it as: (a) data field (description, name, URI — informational), or (b) constraint field (period, whitelist, max, min, deadline, rate — should restrict behavior).
+3. For each constraint field, find ALL consuming functions that operate on the same entity. Verify the constraint field is READ and produces a REVERT or behavioral change in each consumer.
+4. If a constraint field is stored but never read by any consuming function, flag as MEDIUM — the feature is broken, not just missing.
+**Red flags**:
+- `available_period` set in listing function but reservation function checks `minimum_stay` only, ignoring `available_period` entirely
+- `max_participants` stored on entity creation but join function has no cap check
+- `allowed_tokens` whitelist stored but deposit function accepts any denomination
+- `deadline` stored but claim function checks `block.timestamp` against a different value
+- `auto_approve` flag stored for one rental type but the approval function for that type never reads it
+- Any field in a config struct that is written in the setter and read ONLY in query/view functions (never in state-changing functions)
+
+### UNI-106: Listing-Gate Bypass on Unlisted Entities
+**Provenance**: drozer-lite v0.4.1 — class-of-bug: a function that should only operate on listed/active entities does not check the listing status flag, allowing operations on unlisted, delisted, or never-listed entities.
+**Pattern**: An entity has a listing status field (`is_listed`, `active`, `status`, `enabled`) that is set by a listing function and cleared by an unlisting function. Consumer functions (bid, reserve, purchase, deposit, subscribe) that should only operate on listed entities do not check the listing status. This allows: (1) operations on entities that were never listed, (2) operations on entities that were explicitly delisted, (3) exploitation of stale configuration (e.g., `auto_approve` from a previous listing) on a currently unlisted entity.
+**Methodology**:
+1. For every entity with a listing/status flag, enumerate: (a) the function that sets it to active/listed, (b) the function that sets it to inactive/unlisted, (c) all consumer functions that operate on the entity.
+2. For each consumer function, verify it checks the listing status flag early in execution (before accepting funds, granting approvals, or modifying state).
+3. Pay special attention to configuration fields that PERSIST across list/unlist cycles. If `auto_approve`, `price`, `denomination`, or other economic parameters are set during listing and NOT cleared during unlisting, check whether consumers of these fields are guarded by the listing status.
+4. If a consumer function accepts funds or grants permissions without checking listing status, flag. Severity depends on whether the stale configuration enables value extraction.
+**Red flags**:
+- `bid()` function does not check `is_listed == true` before accepting funds and granting approval
+- `reserve()` function accepts deposits for unlisted properties/assets
+- `purchase()` function operates on delisted items using stale price/denomination from a prior listing
+- Unlisting function sets `is_listed = false` but does NOT clear `auto_approve`, `price`, or `denomination` — these persist and are used by consumer functions that skip the listing check
+- Any consumer function that reads economic parameters (price, denomination, approval mode) from the entity without first verifying the entity is currently listed
+
+### UNI-107: Nested Loop Depth Exceeds Gas Budget
+**Provenance**: drozer-lite v0.4.2 — class-of-bug: nested iteration over user-growable collections produces O(N^k) complexity with k≥2, exceeding the block gas limit and permanently DoSing the function for affected users.
+**Pattern**: A function iterates over collection A (size P). For each item, it iterates over collection B (size F). For each pair, it iterates over a range R (size E). The total work is O(P × F × E). Even with individual caps on P, F, and E, the PRODUCT can exceed the block gas limit. This is distinct from UNI-12 (single unbounded loop) — the issue is the nesting depth, not any single loop being unbounded.
+**Methodology**:
+1. For every function with nested loops (loop inside a loop), compute the worst-case product of all loop bounds.
+2. For each bound, determine: is it hardcoded? Is it configurable? Is it user-determined? Can it grow over time (e.g., epochs since first action)?
+3. Compute worst-case iterations: multiply all bounds. If the product exceeds ~50,000 (conservative gas budget for CosmWasm/EVM), flag.
+4. Check whether the function can be called in batches (e.g., claim per-position, claim per-epoch range). If no batching mechanism exists and the function is mandatory (e.g., claim before close), the DoS is permanent.
+**Red flags**:
+- `for position in positions { for farm in farms { for epoch in start..=current { ... } } }` — O(P×F×E)
+- Reward calculation that iterates over all epochs since a user's first deposit with no epoch-range parameter
+- `close_position` requires `claim()` first, and `claim()` has O(N^3) complexity — DoS on claim blocks close
+- No "partial claim" or "skip positions" mechanism exists
+- Config parameters cap individual collections (e.g., max 100 positions, max 10 farms) but their product (1000+) is not capped
+
+### UNI-108: Temporal Parameter Allows Retroactive / Past Values at Creation
+**Provenance**: drozer-lite v0.4.2 — class-of-bug: a creation function accepts a user-supplied temporal parameter (start time, start epoch, activation date) without enforcing it is in the future, allowing retroactive entity creation that breaks reward distribution, billing, or scheduling invariants.
+**Pattern**: An entity with a time-based lifecycle (farm, vesting schedule, auction, subscription, rental) accepts a `start_time` or `start_epoch` parameter at creation. The parameter is validated for basic sanity (> 0, < end) but is NOT validated against the current time/epoch. This allows creating entities that "started in the past," retroactively assigning rewards, obligations, or access to historical periods that other participants have already settled.
+**Methodology**:
+1. For every creation function that accepts a start_time/start_epoch parameter, verify it is enforced as `>= current_time + 1` or `>= current_epoch + 1`.
+2. Check the default value when the parameter is omitted — if it defaults to `current + 1`, verify the explicit path has the same constraint.
+3. Trace what happens if start is set to a past value: are rewards retroactively assigned? Do billing periods extend into the past? Can the creator claim historical periods?
+**Red flags**:
+- `start_epoch = params.start_epoch.unwrap_or(current_epoch + 1)` but no `ensure!(start_epoch >= current_epoch + 1)` for the explicit case
+- Validation checks `start < end` and `end > current` but not `start > current`
+- A farm/schedule created with past start_epoch assigns emissions to epochs where participants already claimed, creating unfair distribution
+- Default path is safe (`current + 1`) but explicit path bypasses the constraint
+
+### UNI-109: Self-Call Identity Confusion
+**Provenance**: drozer-lite v0.4.2 — class-of-bug: a contract calls itself (via submessage, internal execute, or self-invoke) and the called function uses `info.sender` for authorization, but the sender is now the contract itself instead of the original user, causing authorization checks to fail or be bypassed.
+**Pattern**: A function performs a two-step operation by calling itself: step 1 initiates (stores context in a buffer), step 2 is triggered via a self-call (SubMsg or wasm_execute to self). The second step's `info.sender` is the contract's own address, not the original user. If step 2 has an authorization check like `require(sender == receiver)` or `require(sender == user)`, it fails because sender is the contract. Conversely, if step 2 has an authorization check like `require(sender == admin || sender == contract)`, the self-call bypasses user-level restrictions.
+**Methodology**:
+1. For every SubMsg or wasm_execute that targets the contract's own address (`env.contract.address`), identify the function being called.
+2. Check what `info.sender` is used for in the called function. If it's used for authorization, it will be the contract address, not the original caller.
+3. Check whether any receiver/beneficiary validation compares against `info.sender` — this will fail for the self-call case.
+4. Check whether any privilege check accepts the contract's own address — this could be a bypass vector.
+**Red flags**:
+- `wasm_execute(env.contract.address, &ExecuteMsg::ProvideLiquidity { receiver: user, ... }, funds)` where `ProvideLiquidity` checks `ensure!(receiver == info.sender)` — fails because info.sender is the contract
+- Two-step LP provision: step 1 swaps half, step 2 provides balanced LP. Step 2's sender check rejects the self-call.
+- A singleton buffer stores context for the reply handler — if two users trigger step 1 in the same block, the second overwrites the first's buffer
+- Any function with `if info.sender == env.contract.address { /* special path */ }` that grants elevated privileges
+
+### UNI-110: Permissionless Entity Creation Bypasses Protocol-Intended Parameters
+**Provenance**: drozer-lite v0.4.2 — class-of-bug: a permissionless creation function allows the creator to specify parameters that the protocol intended to control (e.g., fee rates, reward schedules), enabling creators to set these to zero or adversarial values to the protocol's detriment.
+**Pattern**: A permissionless function (e.g., create pool, create farm, register market) accepts parameters that affect protocol revenue or user protections. These parameters are stored per-entity and used in subsequent operations. The protocol intended to enforce minimum values (e.g., minimum protocol fee, minimum collateral ratio) but the creation function either has no minimum check or the minimum is 0. Creators can set `protocol_fee = 0`, `collateral_ratio = 0`, or `insurance_fund_share = 0` to attract users while depriving the protocol of revenue or safety margins.
+**Methodology**:
+1. For every permissionless creation function, enumerate every parameter that is stored per-entity and affects protocol revenue or user protection.
+2. For each such parameter, check whether a protocol-level minimum is enforced. If the only validation is `fee.is_valid()` (which may only check `< 100%`), a zero value passes.
+3. Check whether the protocol has a global/config-level fee that overrides per-entity fees. If not, the per-entity fee IS the protocol fee.
+4. Compare against industry standard: Uniswap charges a protocol fee at the factory level; Curve charges admin fees globally. If this protocol charges fees per-entity with no floor, flag.
+**Red flags**:
+- `create_pool(pool_fees: PoolFee)` where `pool_fees.protocol_fee` can be set to 0 by the creator
+- `is_valid()` only checks `fee < 100%`, not `fee >= MINIMUM_PROTOCOL_FEE`
+- No global fee override exists — the per-entity fee is the only fee
+- Protocol documentation states "fees are collected on every swap" but code allows zero-fee pools
+- Pool/farm/market creator can front-run legitimate creation with a zero-fee version to attract liquidity away from fee-bearing entities
