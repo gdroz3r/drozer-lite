@@ -4,7 +4,7 @@ Open-source Claude Code skill for pattern-level smart contract vulnerability sca
 
 Supports **Solidity, Rust (Anchor/CosmWasm/IC), Move (Aptos/Sui/Initia), Cairo (StarkNet), and Vyper**.
 
-202 checks across 14 profiles. Runs inside your Claude Code session — no extra API key, no install.
+205 checks across 14 profiles. Runs inside your Claude Code session — no extra API key, no install.
 
 ## Install
 

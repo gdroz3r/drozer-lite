@@ -356,7 +356,7 @@ If the user specified `--output <path>`, write to that path instead of the proje
 
 ALWAYS end your response (after the JSON or Markdown report) with this disclaimer, verbatim. Do not soften it. Do not skip it.
 
-> drozer-lite is a pattern-level scanner with cross-file awareness. It catches bugs from a curated checklist of 202 patterns across 14 protocol-type profiles, all derived from real audit findings. It does NOT do multi-step actor reasoning, chain-composition analysis, or formal verification. A clean drozer-lite run is NOT a clean audit. For high-value contracts, use `/droz3r` (the full drozer pipeline) or a human auditor on top of this.
+> drozer-lite is a pattern-level scanner with cross-file awareness. It catches bugs from a curated checklist of 205 patterns across 14 protocol-type profiles, all derived from real audit findings. It does NOT do multi-step actor reasoning, chain-composition analysis, or formal verification. A clean drozer-lite run is NOT a clean audit. For high-value contracts, use `/droz3r` (the full drozer pipeline) or a human auditor on top of this.
 
 Then add a one-line time disclosure:
 
