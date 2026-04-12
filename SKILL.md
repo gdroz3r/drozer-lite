@@ -329,6 +329,28 @@ Add cross-cluster findings to the same finding pool with `cross_cluster: true` a
 
 ---
 
+## Step 7.5 — Write the report to disk
+
+After producing the findings JSON, write TWO files to the **project root** (the directory the user pointed you at):
+
+1. **`drozer-lite-findings.json`** — the canonical JSON output from Step 7. Machine-readable, schema-compliant.
+2. **`DROZER_LITE_REPORT.md`** — the Markdown variant (see Markdown format at the bottom of this skill). Human-readable, severity-grouped, with summary table, per-finding sections, and the honest framing disclaimer.
+
+Use the Write tool. Overwrite if either file already exists (re-runs should produce fresh output).
+
+After writing, tell the user:
+```
+Wrote:
+  drozer-lite-findings.json  (canonical JSON, {N} findings)
+  DROZER_LITE_REPORT.md      (Markdown report)
+```
+
+If the user specified `--output <path>`, write to that path instead of the project root.
+
+**Do NOT skip this step.** Findings that only exist in conversation context are lost when the session ends. The disk files are the deliverable.
+
+---
+
 ## Step 8 — Honest framing
 
 ALWAYS end your response (after the JSON or Markdown report) with this disclaimer, verbatim. Do not soften it. Do not skip it.
