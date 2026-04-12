@@ -188,24 +188,34 @@ You may analyze clusters sequentially (recommended for token budget). Each clust
 
 ## Step 6 — Cross-cluster sweep
 
-After all clusters are analyzed, look for bugs that span clusters. This is the step that catches the bugs single-cluster analysis misses.
+After all clusters are analyzed, look for bugs that span clusters. This is the step that catches bugs single-cluster analysis misses. Apply each of the 13 cross-cluster patterns below to every pair of clusters that have references in the inventory from Step 2. The first 6 patterns came from v0.3.0 (symmetric asymmetry checks); patterns 7-13 were added in v0.3.1 after the Kinetiq validation run showed the v0.3.0 sweep was too thin.
 
-For each pair of clusters (A, B) that have references in the inventory:
+### v0.3.0 patterns — symmetric asymmetry
 
 1. **State write/read mismatches**: function in cluster A writes state variable V; function in cluster B reads V without re-validating preconditions. Look for staleness.
 2. **Cross-contract access control gaps**: cluster A function F is guarded by role R; cluster B has a wrapper W around F that has weaker or no access control. The wrapper bypasses the guard.
-3. **Auto-route fallbacks**: cluster A's contract has a `receive()` or `fallback()` that calls a state-changing function in the same or another cluster, so the contract balance is never what callers expect. Check whether ANY function in the inventory uses `address(...).balance` for an invariant the auto-routing breaks.
+3. **Auto-route fallbacks**: cluster A's contract has a `receive()` or `fallback()` that calls a state-changing function in the same or another cluster, so the contract balance is never what callers expect. Check whether ANY function in the inventory uses `address(...).balance` for an invariant the auto-routing breaks. **If found, severity MUST be at least HIGH** — this is the UNI-98 pattern (see universal.md).
 4. **Service interface failure modes**: cluster A provides an interface (e.g., `IOracle`); cluster B consumes it without checking for stale, zero, or revert returns.
 5. **Shared modifier inconsistency**: same bug class fires in cluster A but not B, even though both use the same modifier — flag the missing application in B.
 6. **Pause-state asymmetry**: a pause flag in cluster A is checked in some functions but not in functionally-equivalent siblings in cluster B.
 
-Use the **inventory from Step 2** to identify cross-cluster references quickly. You do NOT need to re-read full cluster source to do the sweep — the inventory has the structural information.
+### v0.3.1 patterns — economic cross-cluster flows
+
+7. **Snapshot-consumption drift**: cluster A stores a value computed from a time-varying rate (e.g. `request.hypeAmount = shares * exchangeRate`). Cluster B (or a later call in cluster A) mutates that rate via reported events (e.g. `reportSlashing`, `reportReward`). The stored snapshot is never re-evaluated at consumption time. Report as `lifecycle_state_residue` with MEDIUM+ severity. **This is the GT-2 Kinetiq pattern**.
+8. **Aggregate fill/drain asymmetry**: cluster A has a variable V that a write path FILLS (e.g. `buffer += amountToBuffer` during deposits); cluster B/A has a drain path that DRAINS V under some conditions but NOT others. Look for sequences where V can accumulate without being drained, and where the only drain path is conditional on caller actions that may never happen. Report as `lifecycle_state_residue` or `unbounded_loop` with MEDIUM+ severity. **This is the GT-1 Kinetiq pattern; drozer-lite won't catch full exploit sequences but will flag the class-of-bug for manual review**.
+9. **Cross-cluster unchecked caller parameter**: cluster A function accepts a `stakingManager` / `router` / `factory` parameter and calls into it. Cluster B is the intended target but no validation enforces it. Role-gating the caller is necessary but NOT sufficient — the caller can still pass a malicious target. Check whether cluster A stores an authoritative target or validates the parameter against a whitelist.
+10. **Cross-cluster role assumption drift**: cluster A calls cluster B function F which requires role R. Cluster A is ASSUMED to hold R but it's not enforced by cluster A's constructor or initialize. If R is revoked from A externally, A's calls revert silently or bubble. Flag as operational fragility (INFO) unless it also opens an attack path.
+11. **Cross-cluster counter consistency**: cluster A and cluster B both write to a shared counter variable (e.g., `totalStaked` in StakingAccountant shared between multiple StakingManagers). Verify that both writers are mutually aware or the counter would drift under concurrent access.
+12. **Provider-consumer type mismatch**: cluster A provides data in units U1 (e.g., basis points, 8-decimal fixed point); cluster B consumes in units U2. Check the `getValidatorMetrics`-style interface in cluster A against the consumer math in cluster B.
+13. **Cross-cluster pause propagation**: cluster A pauses (local flag) but cluster B's functions that depend on A's state don't check A's pause. When A is paused, B continues operating on stale or partial state.
+
+For each pattern: use the **inventory from Step 2** to identify cross-cluster references quickly. You do NOT need to re-read full cluster source to do the sweep — the inventory has the structural information.
 
 Add cross-cluster findings to the same finding pool with `cross_cluster: true` and the names of both clusters involved.
 
-This is the v0.3.0 difference vs v0.2.0: the cross-cluster sweep catches Kinetiq-style auto-route bugs, cross-contract ACL gaps, and consumer-side oracle staleness misses that single-cluster analysis misses.
+**Be honest about confidence**: cross-cluster patterns 7 and 8 (economic flows) are pattern-level CANDIDATES for bugs. drozer-lite can flag the class of bug but cannot construct the exploit sequence — the LLM does not do multi-step actor modeling. When flagging, use MEDIUM confidence and note "pattern present, exploit sequence requires manual / `/droz3r` verification".
 
-**Time budget for Step 6**: ~3-5 minutes for a Kinetiq-sized protocol. Larger protocols may need ~10 minutes.
+**Time budget for Step 6**: ~5-10 minutes for a Kinetiq-sized protocol. Larger protocols may need ~15 minutes.
 
 ---
 
@@ -218,7 +228,7 @@ This is the v0.3.0 difference vs v0.2.0: the cross-cluster sweep catches Kinetiq
 ```json
 {
   "scanner": "drozer-lite",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "profiles_used": ["universal", "reentrancy", "oracle"],
   "files_analyzed": [
     "KHYPE.sol", "StakingManager.sol", "StakingAccountant.sol",
@@ -353,6 +363,9 @@ These are the snake_case tags. Each tag has a fixed meaning and an optional SWC/
 - `pause_time_accumulation` — Time-dependent state continues to accumulate while the protocol is paused.
 - `unbounded_loop` — Loop over user-pushable collection with no upper bound.
 - `irreversible_admin_action` — Admin parameter change with no timelock or two-step apply.
+- `erc165_incomplete_coverage` — supportsInterface does not report all interfaces the contract actually implements (ERC-165 non-compliance).
+- `precision_loss_decimal_conversion` — Scaling between different decimal bases (18↔6, 18↔8, 18↔10) truncates value without rounding direction disclosure.
+- `receive_auto_route_balance_invariant` — receive()/fallback() auto-calls a state-mutating function, breaking any invariant that uses `address(this).balance`. Severity MUST be at least HIGH when the balance is used in a user-facing check.
 
 ---
 

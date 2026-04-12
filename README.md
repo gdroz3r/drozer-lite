@@ -66,14 +66,37 @@ Optional flags you can mention in your prompt (the skill recognizes them):
 
 | Protocol size | Files | Clusters | Wall-clock |
 |---|---|---|---|
-| Single contract (≤30KB) | 1 | 1 | 3-5 min |
-| Small protocol (≤100KB) | 2-10 | 2-3 | 10-20 min |
-| Medium protocol (≤300KB) | 10-30 | 4-8 | 25-45 min |
-| Large protocol (≤500KB) | 30-60 | 8-15 | 45-75 min |
-| Very large (>500KB) | 60+ | 15+ | 75-120 min (soft warn) |
+| Single contract (≤30KB) | 1 | 1 | 5-10 min |
+| Small protocol (≤100KB) | 2-10 | 2-3 | **20-35 min** |
+| Medium protocol (≤300KB) | 10-30 | 4-8 | **40-60 min** |
+| Large protocol (≤500KB) | 30-60 | 8-15 | **60-90 min** |
+| Very large (>500KB) | 60+ | 15+ | **90-150 min** (soft warn) |
 | >1MB | — | — | **refuses** — recommends `/droz3r` |
 
-Zero marginal cost inside Claude Code. drozer-lite is a coffee-break tool, not an instant tool. That trade is what makes it useful for real protocols instead of pedagogical toys.
+Time numbers updated in v0.3.1 after the first real-protocol validation run on Kinetiq (100KB, 3 clusters, ~30 min wall-clock). The earlier v0.3.0 estimates were optimistic — doing the workflow rigorously (inventory + cluster + per-cluster analysis + cross-cluster sweep + dedup) is closer to 30 min for a small protocol than 15.
+
+Zero marginal cost inside Claude Code. drozer-lite is a **coffee-break tool**, not an instant tool. That trade is what makes it useful for real protocols instead of pedagogical toys.
+
+## What drozer-lite catches (and what it doesn't)
+
+**Structural product boundary.** drozer-lite is pattern-level. On Kinetiq (25 ground-truth findings), v0.3.0 hit **40% exact / 56% inclusive**, comparable to the full drozer pipeline on inclusive rate and **beating it on Medium and Low tiers**. But drozer-lite hit **0/3 Highs exactly** (1/3 partial).
+
+This is not a bug, it's the boundary:
+
+| Bug class | drozer-lite catches? | Why |
+|---|---|---|
+| Reentrancy, CEI violations | ✅ | Single-function pattern |
+| Missing access control | ✅ | Single-function pattern |
+| Missing slippage / staleness / pause | ✅ | Single-function pattern |
+| Unbounded loops / array growth | ✅ | Structural pattern |
+| Decimal scaling mismatch | ✅ | Arithmetic pattern |
+| Storage collision / uninit proxy | ✅ | Layout pattern |
+| **Multi-step economic logic** (e.g. buffer accumulation over time) | ❌ | Needs actor modeling |
+| **Temporal ordering unfairness** (e.g. queue before/after slash) | ❌ | Needs event sequence reasoning |
+| **Cross-function state invariants** across 5+ calls | ❌ | Needs multi-step tracing |
+| **Chain-of-bugs composition** (bug A enables bug B) | ❌ | Needs `/droz3r` chain analysis |
+
+If your protocol's highest-severity bugs are multi-step economic logic, **drozer-lite will not find them**. Use `/droz3r` or a human auditor for those. drozer-lite is the fast, reliable pattern-level second opinion — not the full audit.
 
 ## Profiles
 
