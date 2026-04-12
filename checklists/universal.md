@@ -2,7 +2,7 @@
 
 > Profile: universal
 > Checks: 98
-> Source: ported from Drozer-v2 analyses (provenance cited per check). UNI-96..98 added in v0.3.1 after the Kinetiq validation run.
+> Source: ported from Drozer-v2 analyses (provenance cited per check). UNI-96..98 added in v0.3.1 as gap fixes after real-protocol validation. All checks describe generic class-of-bug patterns — never benchmark-specific names.
 
 ## Methodology
 
@@ -656,7 +656,7 @@ Apply adversarially. For every storage variable, every external-facing function,
 **Methodology**: Verify every configuration mapping has both set and unset admin paths.
 
 ### UNI-96: ERC-165 Inherited Interface Coverage
-**Provenance**: drozer-lite v0.3.1 gap from Kinetiq run (GT 20: "supportsInterface Non-Compliant with ERC-165")
+**Provenance**: drozer-lite v0.3.1 — class-of-bug: supportsInterface override omits interfaces implemented by ancestor contracts, breaking ERC-165-based integration detection.
 **Pattern**: A contract's `supportsInterface(bytes4)` only reports the interface it was explicitly registered for, not every interface its parent contracts implement. Downstream integrators who check `supportsInterface(ParentInterface.selector)` get false and refuse integration.
 **Methodology**: For every `supportsInterface` override, enumerate every ancestor contract's interface (including upgradeable/proxy libraries). Verify the override returns true for each. Prefer `return super.supportsInterface(interfaceId) || interfaceId == type(IThis).interfaceId` to the fully-enumerated OR chain to avoid drift on future inheritance changes.
 **Red flags**:
@@ -666,7 +666,7 @@ Apply adversarially. For every storage variable, every external-facing function,
 - Interface-detection-based integration docs (e.g., marketplaces) not tested against actual supportsInterface
 
 ### UNI-97: Precision Loss in Decimal Conversion
-**Provenance**: drozer-lite v0.3.1 gap from Kinetiq run (GT 24: "Silent Precision Loss in Decimal Conversion")
+**Provenance**: drozer-lite v0.3.1 — class-of-bug: silent truncation when scaling values between different decimal bases, rounding direction undocumented and inconsistent with the inverse operation.
 **Pattern**: A function converts a value between different decimal bases (e.g. 18→8, 18→6, 8→18) and silently truncates. The rounding direction is not documented, not user-controlled, and not consistent with the inverse operation.
 **Methodology**: Grep every `amount * 10**X`, `amount / 10**X`, `_convertToNDecimals`, or explicit `mulDiv`/`div` between two known-different decimal bases. For each, verify:
 1. The rounding direction matches the intent (user-owed amounts round UP for the user, fees round UP for the protocol).
@@ -680,15 +680,16 @@ Apply adversarially. For every storage variable, every external-facing function,
 - Conversion comment says "truncates" but callers treat the result as exact
 
 ### UNI-98: receive()/fallback() Auto-Route Balance Invariant Break
-**Provenance**: drozer-lite v0.3.1 gap from Kinetiq run (GT 3: "Mishandling of receiving HYPE in the StakingManager"). Severity calibration fix: this pattern is structurally HIGH, not MEDIUM.
-**Pattern**: A contract has a `receive()` or `fallback()` payable function that unconditionally calls a state-mutating function (e.g. `receive() external payable { stake(); }`). Another function in the same contract uses `address(this).balance` as part of an invariant check (e.g., `require(address(this).balance >= amount)` before a refund/withdraw/return). Because the auto-route consumes incoming value before it can accumulate, the balance-based invariant can be permanently unsatisfiable.
-**Methodology**: For every `receive()` and `fallback()`:
-1. Check whether it unconditionally forwards msg.value into a state-mutating function (stake/deposit/wrap).
-2. Grep the contract for any `address(this).balance` read used in a `require` or arithmetic that affects a user-visible decision.
-3. If found, trace whether there exists ANY code path by which HYPE/ETH/native value can enter the contract WITHOUT going through the auto-route (precompile direct credit, `selfdestruct`, COINBASE reward, direct Spot-balance-to-EVM L1 return). If no such path exists, the invariant is permanently broken; if one exists, the invariant is brittle.
+**Provenance**: drozer-lite v0.3.1 — severity calibration fix for a pattern class where the receive()/fallback() path re-enters a state-mutating function and any invariant that reads `address(this).balance` becomes permanently brittle. This check is structurally HIGH, not MEDIUM.
+**Pattern**: A contract has a `receive()` or `fallback()` payable function that unconditionally forwards `msg.value` into a state-mutating function in the same contract (deposit, wrap, stake, mint, buy). Another function in the same contract uses `address(this).balance` as part of an invariant check (e.g., `require(address(this).balance >= amount)` before a refund / withdraw / return / claim). Because the auto-route consumes incoming native value before it can accumulate, the balance-based invariant can be permanently unsatisfiable, or at minimum becomes dependent on chain-specific semantics for how native value can enter the contract without invoking `receive()`.
+**Methodology**: For every `receive()` and `fallback()` function in the cluster:
+1. Check whether it unconditionally forwards `msg.value` into a state-mutating function (one that writes storage, mints tokens, or calls an external contract with value).
+2. Grep the entire cluster for any `address(this).balance` read used in a `require`, arithmetic, or branch that affects a user-visible decision (refund, withdraw, claim, redeem, rescue).
+3. If both conditions hold, trace whether there is ANY path by which native value can enter the contract WITHOUT invoking `receive()` (e.g., `selfdestruct(to)` from another contract, direct balance credit from a privileged precompile, block reward to COINBASE if the contract is a miner/proposer, chain-specific system transfers). If no such path exists, the invariant is permanently broken. If one exists, the invariant is brittle and subject to operational assumptions outside the source.
 **Red flags**:
-- `receive() external payable { stake(); }` or similar one-liner fallback
-- `confirmWithdrawal`, `refund`, `redeem`, `rescue` with `address(this).balance >= ...` check
-- `_cancelledWithdrawalAmount` or similar rescued-but-not-staked state whose only path back to users depends on contract balance
-- Comments saying "buffer provides liquidity" but no path to drain the buffer back into the balance
-**Severity rule**: This check MUST be rated at least HIGH when the balance-based invariant is on a user-facing function (withdraw, refund, claim, redeem). Do NOT downgrade to MEDIUM due to uncertainty about chain-specific L1 return semantics — the correct finding is HIGH with a note that exploitability depends on the L1 return path, which is an operational assumption the auditor should flag.
+- `receive() external payable { f(); }` where `f()` is any state-mutating function in the same contract
+- `fallback() external payable { ... f(); }` similarly
+- Any function with `require(address(this).balance >= amount, ...)` whose sibling contract has an auto-routing `receive()`/`fallback()`
+- A "rescued" or "cancelled" accumulator variable whose only payout path depends on contract balance growing via future external transfers
+- Comments or docs saying "buffer provides liquidity" or "accumulated value drains to users" but no actual code path produces non-auto-routed inbound value
+**Severity rule (HARD)**: When the balance-based invariant is read in a user-facing function (withdraw, refund, claim, redeem, rescue, confirm, settle), this check MUST be rated at least HIGH. Do NOT downgrade to MEDIUM due to uncertainty about chain-specific native-transfer semantics — the correct finding is HIGH with a note that exploitability depends on operational assumptions the auditor should flag and verify with the protocol team. Severity miscalibration on this pattern is itself a finding-quality bug.

@@ -7,6 +7,17 @@ Thanks for considering a contribution. drozer-lite is a Claude Code skill, not a
 3. **Detection keywords** — new profile triggers
 4. **Fixtures** — vulnerable + clean Solidity pairs for smoke testing
 
+## The one non-negotiable rule — No benchmark-specific names
+
+**Every check, every keyword, every pattern description must be GENERIC.** Never embed audit-benchmark-specific identifiers (contract names, function names, variable names, token tickers from the protocol that motivated your fix) into any check, methodology section, red flags list, or example block.
+
+Bad: *"Check if `confirmWithdrawal` has `whenWithdrawalNotPaused` — this is the Kinetiq GT-5 bug"*
+Good: *"Check if a user-facing confirmation/settlement function has a local pause-flag modifier that's symmetric with the queue function's pause-flag modifier"*
+
+Why: a check with a benchmark-specific function name like `confirmWithdrawal` will miss the exact same bug on any protocol that names it `finalizeClaim`, `settleRedemption`, or `completeExit`. The bug class is the same; the name is the accident. The skill must match the class, not the accident.
+
+See `SKILL.md` → "Check Authorship Rules" (section CA-1 through CA-5) for the full rule and enforcement checklist. Every PR that touches `SKILL.md` or `checklists/*.md` must grep the diff for benchmark-specific identifiers before merge.
+
 ## Project philosophy
 
 drozer-lite is intentionally narrow:
