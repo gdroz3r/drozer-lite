@@ -78,30 +78,9 @@ For each file:
 
 Format the inventory like this (keep it terse — this is your context_map for cross-file detection):
 
-```
-INVENTORY (synthetic example, 12 files, 100KB total):
+Format: `File.sol (XKB, YL) → Contracts: Name → Parent; External fns: ...; State: ...; External calls: ...; Imports: ...`
 
-Token.sol (4.4KB, 119L)
-  Contracts: Token → ERC20Upgradeable, AccessControlUpgradeable
-  External fns: initialize, mint(onlyRole(R)), burn(onlyRole(R)), supportsInterface, _update(whenNotPaused)
-  State: pauseRegistry, MINTER_ROLE, BURNER_ROLE
-  Modifiers: whenNotPaused
-  External calls: pauseRegistry.isPaused(this)
-  Imports: IPauseRegistry
-
-Service.sol (41KB, 1063L)
-  Contracts: Service → AccessControlUpgradeable, ReentrancyGuardUpgradeable, IService
-  External fns: initialize, primaryAction (payable, nonReentrant, whenNotPaused, whenCategoryANotPaused), queueAction (nonReentrant, whenNotPaused, whenCategoryBNotPaused), confirmAction (nonReentrant, whenNotPaused), batchConfirm, privilegedAction, ...
-  State: registry, pauseRegistry, accountant, token, treasury, totalIn, totalOut, totalQueued, bufferA, bufferTarget, ...
-  External calls: registry.view(), accountant.convert(), token.mint(), payable(msg.sender).call{value: amount}, ...
-  Imports: IRegistry, IService, IPauseRegistry, IAccountant, Token
-```
-
-The example above uses synthetic names (`Token`, `Service`, `Registry`, `Accountant`) deliberately. When you build the real inventory for the user's target, use the real file and contract names from the source — but in these illustrative templates, generic placeholders are used so the skill does not bias toward any specific benchmark codebase.
-
-The inventory is your context_map. Reference it during cluster analysis (Step 5) to detect cross-file bugs without loading every cluster's full source at once.
-
-**Time budget for Step 2**: ~30 sec per file. For a 100KB / 9-file small protocol, ~5 minutes.
+Use real file/contract names from the source. Keep it terse — this is your context_map for cross-file detection in Step 5.
 
 ---
 
@@ -443,37 +422,7 @@ These are the snake_case tags. Each tag has a fixed meaning and an optional SWC/
 
 ## Markdown variant (only if the user asks)
 
-If the user explicitly requests a Markdown report, format like this:
-
-```markdown
-# drozer-lite report (synthetic example)
-
-**Profiles**: universal, reentrancy, oracle
-**Files analyzed** (9): Token.sol, Service.sol, ...
-**Clusters**: 3 (PrimaryCluster, ControlCluster, OracleCluster)
-
-## Summary
-
-| Severity | Count |
-|----------|-------|
-| CRITICAL | 0     |
-| HIGH     | 1     |
-| MEDIUM   | 3     |
-| LOW      | 5     |
-| INFO     | 2     |
-
-## Findings
-
-### 1. `lifecycle_state_residue` — HIGH (cross-cluster: false)
-**Function**: `confirmAction`
-**File**: `Service.sol:L305`
-**Cluster**: `PrimaryCluster`
-**Profile**: `universal` · **Confidence**: HIGH · CWE-672
-
-confirmAction requires `address(this).balance >= amount` but the receive() fallback auto-routes incoming value ...
-```
-
-Then the disclaimer.
+Format: Header (profiles, files, clusters) → Summary table → Per-finding sections (vulnerability_type, severity, function, file, cluster, confidence, explanation) → Disclaimer.
 
 ---
 
@@ -493,67 +442,6 @@ Then the disclaimer.
 
 ---
 
-## Check Authorship Rules (CRITICAL — applies to every contributor including the skill itself)
+## Check Authorship Rules
 
-> **The single most important rule governing how new checks, patterns, and sweep rules are written.** If you ever add a check, broaden a keyword, or describe a vulnerability pattern inside this skill or in `checklists/*.md`, you MUST follow these rules. Violating them silently overfits the skill to the codebase that motivated the fix and degrades recall on every other protocol.
-
-### Rule CA-1: No benchmark-specific identifiers
-
-**NEVER embed audit-benchmark-specific names into check descriptions, methodology, red flags, or example blocks.**
-
-Forbidden:
-- Function names unique to the protocol that motivated the fix (e.g. `confirmWithdrawal`, `depositLv`, `swapRaforDs`, `queueRedemption`)
-- Contract names from the motivating protocol (e.g. `StakingManager`, `KHYPE`, `VaultLib`, `FlashSwapRouter`)
-- State variable names unique to one protocol (e.g. `hypeBuffer`, `_cancelledWithdrawalAmount`, `totalQueuedWithdrawals`)
-- Token ticker names in check language (e.g. `HYPE`, `kHYPE`, `DS`, `CT`, `LV`, `RA`, `PA`)
-- Cross-references like "this is the GT-N Kinetiq pattern" or "Cork issue #123"
-
-Allowed:
-- Generic protocol-category nouns: `token`, `vault`, `service`, `module`, `oracle`, `aggregator`, `router`, `factory`, `registry`, `accountant`
-- Generic variable placeholders: `V`, `amount`, `delta`, `balance`, `share`, `record`
-- Generic function-category verbs: `deposit`, `withdraw`, `redeem`, `claim`, `refund`, `rescue`, `confirm`, `settle`, `buy`, `sell`, `swap`, `mint`, `burn`, `convert`, `forward`
-- OpenZeppelin / widely-adopted library names that appear across the entire ecosystem: `ERC20`, `ERC4626`, `ReentrancyGuard`, `UUPSUpgradeable`, `AccessControl`, `SafeERC20`, `AggregatorV3Interface`
-- Common integration library names: `IUniswapV2`, `IUniswapV3`, `IChainlink`, `IPyth`, `ILayerZero`
-
-### Rule CA-2: Why it matters
-
-Pattern matching against specific names produces false negatives on every protocol that doesn't use those exact names. A check written as *"function `confirmWithdrawal` with `address(this).balance >= amount`"* fails on *every* protocol that calls the same bug class `finalizeClaim`, `settleRedemption`, or `completeExit`. The bug class is the same; the name is the accident. The skill must match the class, not the accident.
-
-### Rule CA-3: How to apply when writing a new check
-
-1. Read the benchmark finding that motivated the fix.
-2. Identify the CLASS OF BUG (e.g. "balance-based invariant broken by auto-routing fallback").
-3. Write the check using generic nouns and verbs.
-4. Grep your new check text for any of: contract names, function names, variable names, token tickers from the motivating benchmark. If you find any, replace with placeholders.
-5. Verify by mentally testing the check against a different protocol of the same class. If the check only fires on the motivating benchmark, it's too narrow — generalize.
-
-### Rule CA-4: Provenance is the exception
-
-The `**Provenance**` line in a check entry is the ONE place where benchmark references are allowed, because provenance tracks where the check came from and is not used for matching. However, even in provenance, prefer the **class-of-bug** description over a benchmark project name. Format: `**Provenance**: drozer-lite v0.X — class-of-bug: balance invariant broken by auto-routing fallback`. Benchmark names in provenance are OK only when the class-of-bug alone doesn't unambiguously identify the source pattern.
-
-### Rule CA-5: Enforcement on every edit
-
-Before committing any change to `SKILL.md` or `checklists/*.md`:
-
-1. Grep the changed files for identifiers that belong to the most recent benchmark run.
-2. If any match outside a provenance line, they are bugs — fix before committing.
-3. Verify example blocks (inventory, cluster plan, JSON schema, markdown variant) use synthetic placeholder names (`Token.sol`, `Service.sol`, `Registry.sol`) and not real benchmark names.
-
-Violating this rule is itself a finding-quality bug. Catch it at author time, not at review time.
-
----
-
-## Time and cost expectations
-
-| Protocol size              | Files | Clusters | Wall-clock | Notes                                |
-|----------------------------|-------|----------|------------|--------------------------------------|
-| Single contract (≤30KB)    | 1     | 1        | 3-5 min    | Very small, no Step 6 work needed    |
-| Small protocol (≤100KB)    | 2-10  | 2-3      | 20-35 min  | Typical small-protocol target        |
-| Medium protocol (≤300KB)   | 10-30 | 4-8      | 25-45 min  | Aave-V3-core-sized                   |
-| Large protocol (≤500KB)    | 30-60 | 8-15     | 45-75 min  | Compound-V3-sized                    |
-| Very large (>500KB)        | 60+   | 15+      | 75-120 min | Soft warning, recommend /droz3r      |
-| Refusal threshold (>1MB)   | —     | —        | refuse     | Hard stop, recommend /droz3r         |
-
-These are wall-clock estimates inside a Claude Code session. Cost is zero marginal — drozer-lite uses the same model context the user is already paying for.
-
-drozer-lite is a coffee-break tool, not an instant tool. That trade is what makes it actually useful for real protocols instead of pedagogical toys.
+When adding checks to `checklists/*.md`: never use benchmark-specific names (contract names, function names, token tickers). Use generic class-of-bug descriptions only. Provenance lines are the one exception. See `CONTRIBUTING.md` for full rules.

@@ -2,7 +2,40 @@
 
 > Profile: universal
 > Checks: 110
-> Source: ported from Drozer-v2 analyses (provenance cited per check). UNI-96..98 added in v0.3.1 as gap fixes after real-protocol validation. UNI-99..106 added in v0.4.1 as gap fixes after CosmWasm rental-protocol benchmark validation. UNI-107..110 added in v0.4.2 as gap fixes after CosmWasm DEX benchmark validation. All checks describe generic class-of-bug patterns — never benchmark-specific names.
+> Source: ported from Drozer-v2 analyses (provenance cited per check). UNI-96..98 added in v0.3.1, UNI-99..106 in v0.4.1, UNI-107..110 in v0.4.2. All checks describe generic class-of-bug patterns.
+
+## Table of Contents
+
+- UNI-1: Missing / Incorrect Access Control
+- UNI-2: State Machine / Lifecycle Bypass
+- UNI-3: Classic Reentrancy
+- UNI-4: Cross-Function / Read-Only Reentrancy
+- UNI-5: Missing Zero-Address / Zero-Amount Checks
+- UNI-6: Integer Overflow / Underflow in Unchecked Blocks
+- UNI-7: Unchecked External Call Return Values
+- UNI-8: Controlled Delegatecall
+- UNI-9: Upgrade / Initialization Safety
+- UNI-10: Timestamp Dependence
+- UNI-11: Missing Event Emission
+- UNI-12: Unbounded Loops
+- UNI-13: Unvalidated `from` in transferFrom
+- UNI-14: Loop External-Call Fragility
+- UNI-15: Weird-Token Incompatibility
+- UNI-16: Array Boundary Edge Cases
+- UNI-17: Post-Commitment State Mutation
+- UNI-18: Uninitialized-State Guard Bypass
+- UNI-19..28: Temporal, Cross-Environment, Derived-Value, Work-Reward, Identifier, Spec, Error-State, Normalization, Format, Representation
+- UNI-29..34: Aggregate Removal, Stale-Snapshot, Prerequisite Update, Last-Element, Permissionless Privilege, Token Compatibility
+- UNI-35..38: Role Separation, Cross-Contract ACL, Timelock Scope, Emergency Exit
+- UNI-39..47: Monotonic State, Past-Epoch, Cooldown, Deadline, Sequence, Bounded Iteration, Array Growth, Loop External, Bounded Cleanup
+- UNI-48..54: Rounding Direction, Donation Corruption, First-Depositor, Atomic Transfer, Solvency, No Free Extraction, Fee Bounds
+- UNI-55..60: Storage Slot, Init Completeness, encodePacked, Signed Data, Nonce/Replay, Taint Boundary
+- UNI-61..65: Oracle Staleness, Manipulation-Resistant, Graceful Degradation, Multi-Source, Feed Consistency
+- UNI-66..71: Parameter Scope, Retroactive Calc, Locked-Position, Timing-Adversary, Cross-Function Consistency, Boundary Safety
+- UNI-72..80: Privilege Enumeration, Operation Blocking, Irreversible Admin, Ownership Two-Step, Router Permissionless, Approval Persistence, Permit Frontrun, Router Identity, Router Residual
+- UNI-81..98: Compound-Fork, Supply-Cap DoS, Redemption DoS, Empty-Market, External Reward, Partial Redemption, Bad-Debt, Skip/Disable, FCFS, Negative-Yield, Yield-Leakage, Emergency Input, Before/After Balance, Irreversible Config, ERC-165, Precision Loss, Auto-Route Balance
+- UNI-99..106: Approval Persistence After Reversal, Asymmetric Settlement, Destructive Without Obligation, Heterogeneous Collection, Payment-Gated Transfer, Numeric Type Width, Stored Constraint Unenforced, Listing-Gate Bypass
+- UNI-107..110: Nested Loop Gas DoS, Temporal Past-Value, Self-Call Identity Confusion, Permissionless Fee Bypass
 
 ## Methodology
 
