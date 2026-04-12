@@ -191,7 +191,7 @@ CLUSTER PLAN (synthetic example):
 
 For each cluster:
 
-1. **Read the cluster's source** — Read each file in the cluster fully.
+1. **Read the cluster's source — EVERY LINE, NO EXCEPTIONS.** Read each file in the cluster fully. If a file exceeds ~40KB (~500 lines), read it in sequential chunks using offset+limit (e.g. offset=0 limit=500, then offset=500 limit=500, etc.) until the entire file is read. Do NOT skip, sample, or "read the important parts." Every line of in-scope source must be read. Partial source reading is the #1 cause of missed findings — a 25% read produces 25% recall. This is non-negotiable.
 2. **Read the relevant checklists** — Read `checklists/universal.md` always, plus each auto-loaded profile checklist (`checklists/{profile}.md`).
 3. **Reference the inventory from Step 2** — for cross-cluster bug detection. When the cluster you're analyzing calls a function in another cluster, look up the target's signature in the inventory; you don't need to re-read the other cluster's full source.
 4. **Apply each loaded check** — for each check in the loaded checklists, examine the cluster source. **If the target language is not Solidity, translate the check's Solidity-phrased red flags to the equivalent in the target language** using the concept-mapping table from Step 1. The METHODOLOGY is language-agnostic; only the SYNTAX differs. A check matches when ALL of:
