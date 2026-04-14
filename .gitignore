@@ -54,5 +54,14 @@ drozer-lite-output/
 *.drozer-lite.json
 *.drozer-lite.md
 
+# Benchmark run artifacts (ephemeral; do not commit)
+benchmark-run-*/
+.benchmark-runs/
+
+# Vendor-cloned benchmark corpora / audit targets (re-fetch via benchmark/run.sh)
+midas-contracts/
+2024-*/
+2025-*/
+
 # API keys
 .env.local

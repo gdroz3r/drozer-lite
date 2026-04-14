@@ -3,7 +3,7 @@ name: drozer-lite
 description: General-purpose pattern-level smart contract vulnerability scanner with cross-file awareness. Walks any smart contract project (Solidity, Rust/Anchor/CosmWasm/IC, Move, Cairo, Vyper — single file or multi-file), builds an inventory, clusters related modules, applies a curated checklist of 180+ vulnerability patterns derived from real benchmark gap analysis across 13+ protocol-type profiles, and returns structured findings. USE WHEN the user asks to scan, audit, or review smart contract source for security bugs and wants pattern-level coverage. Designed for protocols up to ~500KB / 100 files. Wall-clock 5-30 min depending on size. Does NOT do multi-step actor reasoning, chain analysis, or formal verification — for that, use the full drozer pipeline (`/droz3r`).
 ---
 
-# drozer-lite — open-source pattern-level smart contract auditor (v0.4.0, multi-language)
+# drozer-lite — open-source pattern-level smart contract auditor (v0.5.0, precision-gated)
 
 You are about to run a multi-file pattern-level smart contract audit using drozer-lite's curated checklist. Follow this 8-step workflow exactly. Do not invent steps, do not paraphrase the checklist, do not invent findings.
 
@@ -178,7 +178,7 @@ For each cluster:
    - The **Pattern** field describes a code construct that exists in the cluster source (in the target language's idiom)
    - The **Red flags** (or their language-translated equivalents) are visible in the source
    - The **Methodology** describes a reachable exploit path you can trace line by line
-5. **When unsure, prefer NOT to report.** False positives are worse than misses. The user expects high signal, not coverage.
+5. **When unsure, do NOT report.** This is a hard rule, not a preference. False positives are worse than misses. Specifically, do NOT report any finding whose body is "what if an admin whitelists a malicious token…", "if a future upgrade adds…", "if ERC777 is ever added…", "if the oracle returns zero…" unless the codebase ALREADY contains evidence that the hypothetical condition holds (e.g., ERC777 is actually in scope, the oracle is actually unvalidated in the read path). Speculative hedging findings are the #1 source of false positives and they MUST be suppressed at the source, not at Step 7.
 6. **For each match**, identify:
    - The affected function name and the file it lives in (full path within the project)
    - A specific line as the most representative location for `line_hint`
@@ -190,15 +190,43 @@ For each cluster:
 
 You may analyze clusters sequentially (recommended for token budget). Each cluster gets its own independent reasoning pass — but ALL clusters share the same checklist context that you loaded once at the start.
 
-### Severity matrix
+### Severity decision table
 
-| Severity   | Criteria                                                                                  |
-|------------|-------------------------------------------------------------------------------------------|
-| CRITICAL   | Permissionless theft >$100k OR protocol-wide fund lock                                    |
-| HIGH       | Theft with conditions OR significant fund lock                                            |
-| MEDIUM     | Meaningful loss with setup requirements                                                    |
-| LOW        | Limited impact, hard to exploit, or pure griefing                                          |
-| INFO       | Best practice, hardening, non-exploitable                                                  |
+Pick severity by walking this table top-to-bottom and stopping at the first row that matches. Do NOT pick severity by "feel" — the table is the contract. Aligned with industry convention (Code4rena / Immunefi / SWC Registry).
+
+| If the finding is… | …and the attacker is… | …and the impact is… | Severity |
+|---|---|---|---|
+| Direct drain / unauthorized mint / arbitrary-state-write | **permissionless** (anyone) | protocol-wide funds at risk, no preconditions | **CRITICAL** |
+| Signature replay on a token-moving or authorization function | permissionless | repeated fund transfer until balance/allowance exhausted | **CRITICAL** |
+| CEI violation / reentrancy that drains a pool | permissionless | full pool drain in a single tx | **CRITICAL** |
+| Missing access control on a function that **sets an economic parameter** (rate, fee, price, reward, threshold) | permissionless | protocol-wide economic manipulation, indirect fund loss | **HIGH** |
+| Missing access control on a function that sets **per-user** state | permissionless | a single user's state is corrupted | **MEDIUM** |
+| CEI violation / reentrancy with a cap on damage (per-user, per-epoch) | permissionless | bounded fund loss | **HIGH** |
+| Signature replay on a non-fund-moving function | permissionless | unbounded action replay, no direct fund loss | **MEDIUM** |
+| Missing input validation that allows a permissionless caller to set a parameter to an out-of-spec value causing fund loss (e.g. `discountBps > 10000`, `fee > 100%`) | permissionless OR creator of a permissionless market | direct fund loss once the bad value is set | **HIGH** |
+| Missing input validation with no direct fund loss | permissionless | griefing, DoS, or broken-state | **MEDIUM** |
+| Racing a legitimate caller for funds (front-run withdrawal vs release) | permissionless | race winner takes funds that were rightfully the loser's | **MEDIUM** |
+| Division by zero that bricks a critical function | permissionless | permanent DoS of stake/redeem/withdraw | **HIGH** |
+| Division by zero in a view-only or non-critical path | permissionless | view call reverts, no state impact | **LOW** |
+| Unchecked return value of a known-standard token (SafeERC20 not used) AND the token whitelist includes a specific non-standard token (USDT, BNB, etc.) | permissionless | silent accounting drift | **MEDIUM** |
+| Unchecked return value with no identified non-standard token in scope | — | speculative | **DROP — FP risk** |
+| Missing nonReentrant guard AND an actual callback-enabled token is in scope (ERC777, ERC1155 receiver hook used) | permissionless | real reentrancy path | **HIGH** |
+| Missing nonReentrant guard with no callback-enabled token in scope | — | speculative | **DROP — FP risk** |
+| Use of `transfer()` (2300 gas) for payouts to EOAs only | — | none | **DROP — FP risk** |
+| Use of `transfer()` (2300 gas) for payouts to addresses that can be arbitrary contracts | permissionless | bricked withdrawal if recipient's fallback costs > 2300 gas | **LOW** |
+| Admin action with no timelock, no multi-sig enforcement visible, and the admin controls fund movement | admin | rug pull / instantaneous parameter change | **MEDIUM** (centralization) |
+| Missing event emission on state-changing function | — | off-chain indexers miss state change | **LOW** or **INFO** |
+| Griefing / DoS without fund loss | permissionless | single-user DoS | **LOW** |
+| Griefing / DoS affecting ALL users of a critical function | permissionless | protocol-wide DoS | **HIGH** |
+| Style / best-practice / non-exploitable | — | hardening only | **INFO** |
+
+**Adjustment rules**:
+
+- **Cap at MEDIUM** if the attacker must already be a trusted role (admin, owner, governance-elected). This is centralization risk, not exploitation.
+- **Bump one tier** if the protocol holds >$10M TVL in a similar deployed protocol. drozer-lite does not know TVL; apply this only if the user stated the context.
+- **Drop the finding** if the "exploit" requires a specific off-chain setup drozer-lite cannot verify (e.g., "if the admin key is compromised by phishing").
+
+**If the table has no row that matches**: the finding is either novel or you are describing a class of issue drozer-lite is not calibrated for. Default to **LOW** and document the mismatch in your reasoning. Do not invent a severity.
 
 ### Confidence
 
@@ -243,9 +271,47 @@ Add cross-cluster findings to the same finding pool with `cross_cluster: true` a
 
 ---
 
-## Step 7 — Dedup, aggregate, output
+## Step 7 — Emission gates, dedup, aggregate, output
 
-1. Group findings by `(canonical_vulnerability_type, affected_file, affected_function)`. Two findings with the same triple are duplicates.
+Before dedup, every candidate finding in your working set MUST pass two gates. Findings that fail are dropped silently — not reported as INFO, not listed as "potential", just dropped.
+
+### Gate A — Exploit-Sentence Gate (precision)
+
+For each candidate finding, write out internally the following one-sentence exploit statement:
+
+> *"An attacker with [ROLE/PERMISSION] calls [FUNCTION] with [CONCRETE INPUT], and the result is [CONCRETE LOSS/IMPACT]."*
+
+Every bracket must be filled from THIS codebase's source, not from a hypothetical future state.
+
+- `[ROLE/PERMISSION]` must be one of: `anyone` (permissionless), `any holder of X` (where X is a real role/token in this code), `the admin` (if admin is the attacker), `a contract at address Y` where Y is reachable. NOT "a future ERC777 integration", NOT "if a malicious token is whitelisted".
+- `[FUNCTION]` must be a function that exists in scope.
+- `[CONCRETE INPUT]` must be a value range that exists in the parameter types AND is not already rejected by a require/assert/modifier in the current code.
+- `[CONCRETE LOSS/IMPACT]` must be quantifiable: "X tokens moved to attacker", "pool reserves desynced by Y", "user locked out of withdraw", etc. NOT "could cause issues", NOT "may cause confusion".
+
+If any bracket fails, **DROP the finding**. Do not downgrade it to INFO. Do not hedge it with "theoretical". Drop it.
+
+**Two exceptions** — findings allowed through without a concrete exploit sentence:
+
+1. **Cross-cluster economic flow candidates** (Step 6 patterns 7-13). These are explicitly pattern-level flags that drozer-lite cannot construct exploits for. They pass Gate A with `confidence: "MEDIUM"` or `"LOW"` and the explanation must begin with `"Pattern-level candidate:"`.
+2. **Informational hardening items** flagged as `severity: "INFO"` (e.g., missing event emission). These pass Gate A but are capped at INFO and must have a one-line justification for why they were kept.
+
+### Gate B — Reasoning Reconciliation (recall)
+
+Before emitting, scan your own reasoning trace for any dismissal phrases applied to a candidate finding:
+- *"actually not a vuln"*, *"self-griefing"*, *"edge case"*, *"would revert anyway"*, *"dead code"*, *"by design"*, *"admin-only so trusted"*, *"mitigated by admin whitelist"*, *"unreachable in practice"*.
+
+For each dismissal, ask: **is the dismissal backed by a hard constraint visible in the current code (a require, a modifier, an enforced invariant) or is it an intuition about operator behavior?**
+
+- Hard constraint → dismissal is valid → keep dropped.
+- Intuition about operators, future state, or "by design" without a code-level lock → **restore the finding** at appropriate severity.
+
+This gate prevents the agent from reasoning itself out of reporting real bugs that the pattern matcher correctly identified.
+
+### Dedup and aggregation
+
+After both gates:
+
+1. Group surviving findings by `(canonical_vulnerability_type, affected_file, affected_function)`. Two findings with the same triple are duplicates.
 2. The highest-severity finding wins each cluster's representative slot.
 3. Output a single JSON object matching the schema below. By default, no prose around it, no markdown fences. (If the user explicitly asked for a Markdown report, render the same content as a Markdown report — see the Markdown variant at the bottom.)
 
@@ -296,8 +362,8 @@ Add cross-cluster findings to the same finding pool with `cross_cluster: true` a
 ### Field rules
 
 - `scanner` is always `"drozer-lite"`.
-- `version` is `"0.3.0"`.
-- `vulnerability_type` MUST be a snake_case canonical tag from the vocabulary at the bottom of this file. If genuinely none fit, fall back to a short snake_case description.
+- `version` is `"0.5.0"`.
+- `vulnerability_type` MUST be a snake_case canonical tag from the vocabulary at the bottom of this file. **You MUST pick the closest existing tag**; paraphrasing (e.g. writing `"tx.origin authorization"` when the canonical tag is `tx_origin_auth`) is NOT allowed. The vocabulary aligns with SWC Registry and Code4rena taxonomy — labels like `tx_origin_auth`, `missing_access_control`, `missing_input_validation`, `checks_effects_interactions_violation`, `signature_replay`, `reentrancy`, `oracle_staleness`, `division_by_zero`, `missing_timelock` are industry-standard and should match what external scorers and graders expect. Only if the vocabulary genuinely has no close match may you fall back to a short snake_case description — and that is an extraordinary case that should be flagged with a `warnings` entry.
 - `severity` is exactly one of `CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, `INFO`. Uppercase.
 - `confidence` is exactly one of `HIGH`, `MEDIUM`, `LOW`. Uppercase.
 - `source_profile` MUST be one of the profiles you loaded in Step 3.
@@ -349,14 +415,19 @@ These are the snake_case tags. Each tag has a fixed meaning and an optional SWC/
 
 ### Reentrancy / external call ordering
 - `reentrancy` — External call before state update; re-entrant caller drains balance. (SWC-107, CWE-841)
+- `checks_effects_interactions_violation` — Same underlying pattern as `reentrancy`; use this tag when the CEI violation is the clearest framing (e.g. refund before state update, external call before balance zeroing). Many industry rubrics and CEI-focused benchmarks prefer this label. (SWC-107)
 - `cross_function_reentrancy` — State changed in one function is read inconsistently in another via callback. (SWC-107)
 - `callback_hook_reentrancy` — ERC777/721/1155 receiver hook reenters before state finalization. (SWC-107)
 
 ### Access control
 - `missing_access_control` — State-changing function lacks an authorization check. (SWC-105, CWE-284)
-- `tx_origin_auth` — Authorization decision uses tx.origin instead of msg.sender. (SWC-115)
+- `tx_origin_auth` — Authorization decision uses tx.origin instead of msg.sender. (SWC-115) *Alias: `tx_origin_authentication`.*
 - `privilege_retention_after_transfer` — Deployer or prior owner retains non-owner roles after ownership transfer.
 - `rate_limit_bypass` — Sibling function or alternative path bypasses an enforced rate limit.
+
+### Input validation
+- `missing_input_validation` — User-supplied parameter is not bounded against an invariant (e.g. `discountBps > 10000`, `fee > 100%`, `amount == 0` on a critical path). (SWC-123, CWE-20)
+- `missing_condition_check` — Caller preconditions (time window, state flag, counterparty consent) are not enforced, letting the caller act outside the intended state machine. Use this when the omission is a single missing require/assert, not a broader access-control gap.
 
 ### Math / arithmetic
 - `integer_overflow` — Arithmetic overflow or underflow that wraps. (SWC-101, CWE-190)
