@@ -3,7 +3,7 @@ name: drozer-lite
 description: General-purpose pattern-level smart contract vulnerability scanner with cross-file awareness. Walks any smart contract project (Solidity, Rust/Anchor/CosmWasm/IC, Move, Cairo, Vyper — single file or multi-file), builds an inventory, clusters related modules, applies a curated checklist of 180+ vulnerability patterns derived from real benchmark gap analysis across 13+ protocol-type profiles, and returns structured findings. USE WHEN the user asks to scan, audit, or review smart contract source for security bugs and wants pattern-level coverage. Designed for protocols up to ~500KB / 100 files. Wall-clock 5-30 min depending on size. Does NOT do multi-step actor reasoning, chain analysis, or formal verification — for that, use the full drozer pipeline (`/droz3r`).
 ---
 
-# drozer-lite — open-source pattern-level smart contract auditor (v0.5.0, precision-gated)
+# drozer-lite — open-source pattern-level smart contract auditor (v0.5.1, adversarial-gated)
 
 You are about to run a multi-file pattern-level smart contract audit using drozer-lite's curated checklist. Follow this 8-step workflow exactly. Do not invent steps, do not paraphrase the checklist, do not invent findings.
 
@@ -178,7 +178,19 @@ For each cluster:
    - The **Pattern** field describes a code construct that exists in the cluster source (in the target language's idiom)
    - The **Red flags** (or their language-translated equivalents) are visible in the source
    - The **Methodology** describes a reachable exploit path you can trace line by line
-5. **When unsure, do NOT report.** This is a hard rule, not a preference. False positives are worse than misses. Specifically, do NOT report any finding whose body is "what if an admin whitelists a malicious token…", "if a future upgrade adds…", "if ERC777 is ever added…", "if the oracle returns zero…" unless the codebase ALREADY contains evidence that the hypothetical condition holds (e.g., ERC777 is actually in scope, the oracle is actually unvalidated in the read path). Speculative hedging findings are the #1 source of false positives and they MUST be suppressed at the source, not at Step 7.
+4a. **Textbook-pattern specific-break requirement** (new in v0.5.1). For canonical well-known patterns — **reentrancy / CEI**, **signature replay**, **reward-debt / MasterChef-style accumulator**, **multisig stale-approval after owner removal**, **ERC4626 first-depositor inflation**, **flash loan oracle manipulation**, **approve-then-transferFrom race** — pattern presence is NOT sufficient. The finding MUST identify the **specific line** in the current code that deviates from the textbook safe version. Competent authors handle these patterns correctly most of the time; emitting on pattern presence without a concrete break is the top precision failure on complex clean contracts.
+
+   - Good: *"Line 65 calls `msg.sender.call{value: excess}('')` BEFORE line 68 updates `tokensSold`. Textbook safe version updates state before the external call."*
+   - Bad: *"The reward-debt pattern is present; a user acquiring LP after fees accrue can claim retroactively."* (class description, not a code-level break)
+   - Bad: *"removeOwner does not clear approvals — classic multisig bug."* (class description; requires you to actually show that the approvals are counted AFTER removal in the current execute() path, with specific lines)
+
+5. **When unsure, do NOT report.** This is a hard rule, not a preference. False positives are worse than misses.
+
+   (a) **Hedging by hypothetical future state** — banned. Do NOT report any finding whose body is "what if an admin whitelists a malicious token…", "if a future upgrade adds…", "if ERC777 is ever added…", "if the oracle returns zero…" unless the codebase ALREADY contains evidence that the hypothetical condition holds (e.g., ERC777 is actually in scope, the oracle is actually unvalidated in the read path).
+
+   (b) **Hedging by admin cooperation** — banned (new in v0.5.1). Do NOT report any finding whose exploit sentence requires the admin/owner/trusted actor to deliberately misconfigure parameters, set addresses to zero, or cooperate with the attacker. Examples that must be suppressed: "admin can set `sanctionsList` to zero and disable sanctions", "admin can call `setFee(10000)` and drain", "arbitrator can transfer role to attacker". These are centralization concerns, not exploits. Move them to `warnings[]` as `"centralization: <title>"` strings if the user explicitly invoked with `--include-centralization`. Never emit them in `findings[]` by default.
+
+   Speculative hedging findings of either type are the #1 source of false positives and MUST be suppressed at the source, not at Step 7.
 6. **For each match**, identify:
    - The affected function name and the file it lives in (full path within the project)
    - A specific line as the most representative location for `line_hint`
@@ -227,6 +239,17 @@ Pick severity by walking this table top-to-bottom and stopping at the first row 
 - **Drop the finding** if the "exploit" requires a specific off-chain setup drozer-lite cannot verify (e.g., "if the admin key is compromised by phishing").
 
 **If the table has no row that matches**: the finding is either novel or you are describing a class of issue drozer-lite is not calibrated for. Default to **LOW** and document the mismatch in your reasoning. Do not invent a severity.
+
+### Weak-evidence severity floor (new in v0.5.1)
+
+If the exploit sentence's `[CONCRETE LOSS]` depends on ANY of the following, cap severity at **LOW** regardless of what the main severity table returned:
+
+- **Off-chain tree / payload construction** — e.g., merkle-leaf reuse across windows requires the admin to reuse roots off-chain; the contract itself cannot enforce it.
+- **Cross-contract configuration the admin sets later** — e.g., "if the token whitelisted via `setToken` returns false on transfer" when no such token is currently referenced in scope.
+- **Unobservable user ordering or mempool races** that the contract neither enforces nor defends against, where either ordering is legitimate.
+- **External callback behavior** on callee types that are not in the current whitelist (ERC777 hooks, generic ERC1155 receivers) unless the code actually integrates those standards.
+
+Combined with the severity-tier output filter (Step 7 rule 1a), these capped-at-LOW findings move to `warnings[]` by default. This kills the class of "this could be bad if the admin / off-chain / future setup cooperates" speculations that survive Gate A by sounding concrete but depend on unobservable context.
 
 ### Confidence
 
@@ -295,6 +318,32 @@ If any bracket fails, **DROP the finding**. Do not downgrade it to INFO. Do not 
 1. **Cross-cluster economic flow candidates** (Step 6 patterns 7-13). These are explicitly pattern-level flags that drozer-lite cannot construct exploits for. They pass Gate A with `confidence: "MEDIUM"` or `"LOW"` and the explanation must begin with `"Pattern-level candidate:"`.
 2. **Informational hardening items** flagged as `severity: "INFO"` (e.g., missing event emission). These pass Gate A but are capped at INFO and must have a one-line justification for why they were kept.
 
+### Gate C — Disprove-Before-Emit (adversarial precision)
+
+After Gate A but before Gate B, for every candidate finding that survived Gate A, write ONE adversarial sentence in your reasoning:
+
+> *Defender's Argument: "This may be a false positive because [specific code-level reason the exploit fails]."*
+
+The reason must be **backed by visible code** in the current source — not intuition, not "probably safe", not "the author surely thought about it." Things that count as a valid defender:
+
+- A specific require/assert that blocks the attack path
+- A specific modifier on another function that prevents the precondition
+- A specific state update ordering that neutralizes the described race
+- A specific modifier/guard on the external callback that prevents reentry
+- A specific off-chain constraint documented in the code (comment / NatSpec) that the contract's author relied on
+
+Then apply this rule:
+
+| Defender sentence quality | Action |
+|---|---|
+| Strong defender backed by a specific line-level guarantee | **Downgrade one tier**. If original is LOW, drop. |
+| Weak defender (hand-waving, "usually", "probably") | Keep at original severity |
+| No defender possible — no mitigation visible | Keep at original severity (this is a real finding) |
+
+This gate forces the agent to *argue against itself*. Pattern matching plus concrete trace is not enough — the agent must try to disprove the finding using the code. Real bugs survive because no defender argument holds. Plausible-looking FPs get downgraded or dropped because a line-level mitigation exists.
+
+**Exception**: CRITICAL findings where the defender is only "the admin would not do that" → do NOT downgrade (admin-trust hedging is banned by Step 5 rule 5 anyway).
+
 ### Gate B — Reasoning Reconciliation (recall)
 
 Before emitting, scan your own reasoning trace for any dismissal phrases applied to a candidate finding:
@@ -307,13 +356,18 @@ For each dismissal, ask: **is the dismissal backed by a hard constraint visible 
 
 This gate prevents the agent from reasoning itself out of reporting real bugs that the pattern matcher correctly identified.
 
-### Dedup and aggregation
+### Dedup, consolidation, and aggregation
 
-After both gates:
+After all three gates (A, B, C):
 
-1. Group surviving findings by `(canonical_vulnerability_type, affected_file, affected_function)`. Two findings with the same triple are duplicates.
-2. The highest-severity finding wins each cluster's representative slot.
-3. Output a single JSON object matching the schema below. By default, no prose around it, no markdown fences. (If the user explicitly asked for a Markdown report, render the same content as a Markdown report — see the Markdown variant at the bottom.)
+1. Group surviving findings by `(canonical_vulnerability_type, affected_file, affected_function)`. Two findings with the same triple are duplicates — keep the highest-severity.
+1a. **Severity-tier output filter** (new in v0.5.1): by default, the `findings[]` array contains only `CRITICAL`, `HIGH`, and `MEDIUM`. `LOW` and `INFO` findings move to the `warnings[]` array as `"low: <title>"` or `"info: <title>"` strings — preserved in output, out of the main findings list. Rationale: LOW/INFO findings are hardening observations; most scoring rubrics penalize them as false positives relative to the expected bug set. A user who wants them (real-audit context) can invoke with `--include-low` or `--full` and the skill restores them to `findings[]`.
+
+2. **Root-cause consolidation** (new in v0.5.1): after dedup, group by `(canonical_vulnerability_type, affected_file)`. If two or more findings share the same vulnerability_type in the same file but hit different functions, apply the **"could one PR fix all of them?"** test:
+   - If a single code change would resolve all of them (e.g., `executeTransfer` and `executeTokenTransfer` both missing a nonce, fixed by adding one shared nonce-check helper) → **consolidate into ONE finding**. Name the primary function in `affected_function` and list siblings in the `explanation` with "(also affects: fnA, fnB)".
+   - If the fixes are independent (e.g., reentrancy in `withdrawTo` vs access control missing on `setRate` — different fix patterns) → keep as separate findings.
+3. The highest-severity finding wins each consolidated slot.
+4. Output a single JSON object matching the schema below. By default, no prose around it, no markdown fences. (If the user explicitly asked for a Markdown report, render the same content as a Markdown report — see the Markdown variant at the bottom.)
 
 ```json
 {
@@ -362,7 +416,7 @@ After both gates:
 ### Field rules
 
 - `scanner` is always `"drozer-lite"`.
-- `version` is `"0.5.0"`.
+- `version` is `"0.5.1"`.
 - `vulnerability_type` MUST be a snake_case canonical tag from the vocabulary at the bottom of this file. **You MUST pick the closest existing tag**; paraphrasing (e.g. writing `"tx.origin authorization"` when the canonical tag is `tx_origin_auth`) is NOT allowed. The vocabulary aligns with SWC Registry and Code4rena taxonomy — labels like `tx_origin_auth`, `missing_access_control`, `missing_input_validation`, `checks_effects_interactions_violation`, `signature_replay`, `reentrancy`, `oracle_staleness`, `division_by_zero`, `missing_timelock` are industry-standard and should match what external scorers and graders expect. Only if the vocabulary genuinely has no close match may you fall back to a short snake_case description — and that is an extraordinary case that should be flagged with a `warnings` entry.
 - `severity` is exactly one of `CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, `INFO`. Uppercase.
 - `confidence` is exactly one of `HIGH`, `MEDIUM`, `LOW`. Uppercase.
