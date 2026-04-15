@@ -57,7 +57,7 @@ If you cannot find any source, ask the user to specify a path or paste source. D
 | Reentrancy guard | `nonReentrant`, `ReentrancyGuard` | manual flag, `#[non_reentrant]` in some frameworks | N/A (Move is not reentrant by design) | N/A (Cairo is not reentrant by design) |
 | Import/dependency | `import`, `using...for` | `use`, `mod`, Cargo.toml deps | `use`, `friend` | `use`, imports |
 
-When applying checks from `checklists/universal.md`, **translate the Solidity-phrased red flags to the target language's equivalent**. The METHODOLOGY is language-agnostic; only the SYNTAX differs. For example:
+When applying checks from `.claude/skills/drozer-lite/checklists/universal.md`, **translate the Solidity-phrased red flags to the target language's equivalent**. The METHODOLOGY is language-agnostic; only the SYNTAX differs. For example:
 - UNI-1 says "Missing `onlyOwner`/`onlyRole(...)` on state-changing function" → in Rust, check for missing `require!(authority == ...)` or `#[access_control(...)]`
 - UNI-3 says "Balance/ownership update AFTER `.call` or token transfer" → in Rust, check for CPI invocations before account state updates
 
@@ -172,7 +172,7 @@ CLUSTER PLAN (synthetic example):
 For each cluster:
 
 1. **Read the cluster's source — EVERY LINE, NO EXCEPTIONS.** Read each file in the cluster fully. If a file exceeds ~40KB (~500 lines), read it in sequential chunks using offset+limit (e.g. offset=0 limit=500, then offset=500 limit=500, etc.) until the entire file is read. Do NOT skip, sample, or "read the important parts." Every line of in-scope source must be read. Partial source reading is the #1 cause of missed findings — a 25% read produces 25% recall. This is non-negotiable.
-2. **Read the relevant checklists** — Read `checklists/universal.md` always, plus each auto-loaded profile checklist (`checklists/{profile}.md`).
+2. **Read the relevant checklists** — Read `.claude/skills/drozer-lite/checklists/universal.md` always, plus each auto-loaded profile checklist (`.claude/skills/drozer-lite/checklists/{profile}.md`). These paths are relative to the project root (current working directory) where the skill is invoked.
 3. **Reference the inventory from Step 2** — for cross-cluster bug detection. When the cluster you're analyzing calls a function in another cluster, look up the target's signature in the inventory; you don't need to re-read the other cluster's full source.
 4. **Apply each loaded check** — for each check in the loaded checklists, examine the cluster source. **If the target language is not Solidity, translate the check's Solidity-phrased red flags to the equivalent in the target language** using the concept-mapping table from Step 1. The METHODOLOGY is language-agnostic; only the SYNTAX differs. A check matches when ALL of:
    - The **Pattern** field describes a code construct that exists in the cluster source (in the target language's idiom)
