@@ -1,5 +1,49 @@
 # Changelog
 
+## v0.5.3 — Two-quote textbook break (2026-04-17)
+
+**Headline**: Methodology-only refinement to the v0.5.2 worksheet. Targets the residual failure mode where agents fill worksheet field 3 with vague phrasing ("should add nonReentrant", "needs slippage parameter") that satisfies the structural check but doesn't actually prove a textbook deviation. Addresses pattern-spam emissions on contracts where the patterns are present but the textbook safe form is genuinely matched (or has acceptable alternatives).
+
+### Methodology change
+
+**Worksheet field 3 — two-quote requirement**. When `textbook=Y` (field 2), field 3 now requires:
+1. The offending code as it exists in the current source, quoted verbatim with `file:line`.
+2. The textbook-safe equivalent quoted verbatim from a NAMED industry reference (OpenZeppelin / Uniswap V2 or V3 / ERC4626 spec / SWC mitigation / Chainlink integration guide / Curve / etc.).
+3. A one-sentence statement of the structural gap between (1) and (2).
+
+The finding DROPS if any of:
+- Either code quote is missing or paraphrased rather than verbatim.
+- No recognized reference applies (in which case field 2 was wrongly marked Y — the finding is not a textbook-class case).
+- The structural gap is just a hardening pattern with acceptable alternatives (e.g., dead-share mint on first deposit instead of OZ virtual offsets, balance-after deltas instead of explicit reentrancy guard, post-transfer detection instead of blocklist enforcement).
+
+### Rationale
+
+Pattern presence is the easiest property to over-claim. The v0.5.2 worksheet made Step 5 rule 4a a REQUIRED field, but a REQUIRED field that accepts handwave defeats its own purpose. Forcing two verbatim quotes plus a NAMED reference creates structural pressure: the agent either produces the comparison or admits the textbook-pattern claim was unsupported. The named-reference requirement specifically addresses the failure mode where every contract using `.call`, every swap function, or every receive() function gets flagged regardless of whether a recognized industry-standard safe form exists for the claimed pattern.
+
+### Validation method
+
+Per `post-audit-improvement-protocol.md`: the change addresses an RC-AGENT cluster that the v0.5.2 worksheet alone did not fully resolve, observed in cross-run validation where clean-fixture contracts continued to attract textbook-pattern emissions despite the v0.5.2 enforcement. The two-quote requirement does not add any new check — it tightens the existing field 3 contract.
+
+### Not changed
+
+- `checklists/*.md` — zero edits.
+- Vocabulary section, severity decision table, profile detection, clustering, cross-cluster sweep — unchanged.
+- All Step 5 hedging rules and Step 7 gates A/B/C — unchanged.
+- No benchmark-specific keywords, identifiers, function names, or pattern descriptions added anywhere.
+
+### Anti-bloat audit
+
+| Change | Type | Lines added (SKILL.md) | Files modified |
+|---|---|---|---|
+| Field 3 cell tightening | edit | net +2 | 1 |
+| Field 3 enforcement rationale | extend | ~5 | 1 |
+| Version bump + header | edit | net 0 | 1 |
+| **Total** | — | **+7 net** | **1 file (SKILL.md)** |
+
+SKILL.md grows from 595 → 597 lines. Worksheet structure unchanged; only field 3 contract is tightened.
+
+---
+
 ## v0.5.2 — Worksheet-enforced emission + vocabulary discipline (2026-04-17)
 
 **Headline**: Methodology-only changes addressing two failure classes observed in cross-run validation: (1) v0.5.1's gates and Step 5 rule 4a are sound but get skipped when SKILL.md is read as a manual fallback (parallel sub-agent invocation, low-context runs), and (2) two canonical vocab tags lost points to industry-standard rubrics due to abbreviation mismatch and an undefined discriminator between near-synonyms. Zero checklist edits, zero new checks. No benchmark-specific patterns or identifiers added.
