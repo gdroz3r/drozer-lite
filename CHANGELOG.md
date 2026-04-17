@@ -1,5 +1,48 @@
 # Changelog
 
+## v0.5.4 — Revert v0.5.3; restore worksheet baseline (2026-04-17)
+
+**Headline**: v0.5.3's two-quote / named-reference tightening of worksheet field 3 was a regression in clean-room cross-run validation. Rolled back to the v0.5.2 worksheet contract. SKILL.md content is byte-identical to v0.5.2 except for version strings.
+
+### What v0.5.3 broke
+
+The named-reference safe-form requirement penalized findings whose canonical fix is a one-line check rather than a structural pattern (input validation, missing access control, missing condition checks). Agents marked these as `textbook=Y`, then could not produce a verbatim safe form from a NAMED industry reference (because no such named reference exists for "add the missing require"), so the finding dropped. Net effect in cross-run validation:
+- Multiple legitimate findings dropped (regressions on cases where v0.5.2 scored 1.0 or near-perfect).
+- One previously-clean case gained a new false positive.
+- The intended target (pattern-spam emissions on textbook DEX/share/balance patterns) was only marginally suppressed.
+
+### Root cause of the v0.5.3 design failure
+
+1. **Field 2's textbook list was not exhaustive** ("similar known patterns" / "etc."). Agents extrapolated unpredictably and over-marked findings as textbook=Y, dragging legitimate findings into the new strict field 3.
+2. **The named-reference requirement assumed every textbook pattern has a documented safe form in industry sources**. This is true for structural patterns (CEI, ERC4626 first-depositor, Curve invariant) but false for one-line-fix patterns (input validation bounds, missing access guards). Penalizing findings of the latter class for not having a "named reference" is wrong.
+3. **The change did not address the actual structural problem**: pattern-matching scanners always emit when patterns are present, and "this contract is intentionally a teaching fixture" is a judgment that pattern-level enforcement cannot make. Worksheet enforcement at the single-agent level cannot fully solve this.
+
+### What is preserved from v0.5.2
+
+All of the v0.5.2 changes that did real work in cross-run validation:
+- Step 7.0 worksheet (6-field structured commitment).
+- No-silent-drops rule.
+- Gate C visibility entries in `warnings[]`.
+- Vocabulary discipline rules (unabbreviated canonical, near-synonym discriminator).
+- `tx_origin_authentication` and `checks_effects_interactions_violation` as canonical tags.
+
+### What is NOT being attempted in v0.5.4
+
+No replacement for the v0.5.3 textbook-break tightening. The lesson from this iteration is that further single-agent worksheet enforcement is unlikely to break past the v0.5.2 baseline — the residual gap requires either (a) a structurally different validation mechanism (e.g., independent-context second-agent validation of worksheet entries), or (b) acceptance of the v0.5.2 baseline as the current ceiling pending a different evaluation corpus. No new methodology change ships in v0.5.4.
+
+### Anti-bloat audit
+
+| Change | Type | Lines | Files modified |
+|---|---|---|---|
+| Field 3 cell — restored to v0.5.2 wording | revert | net −2 | 1 |
+| Field 3 enforcement rationale paragraph — removed | revert | net −5 | 1 |
+| Version bump (v0.5.3 → v0.5.4) | edit | net 0 | 1 |
+| **Total** | — | **−7 net** | **1 file (SKILL.md)** |
+
+SKILL.md shrinks from 597 → 595 lines (back to v0.5.2 size).
+
+---
+
 ## v0.5.3 — Two-quote textbook break (2026-04-17)
 
 **Headline**: Methodology-only refinement to the v0.5.2 worksheet. Targets the residual failure mode where agents fill worksheet field 3 with vague phrasing ("should add nonReentrant", "needs slippage parameter") that satisfies the structural check but doesn't actually prove a textbook deviation. Addresses pattern-spam emissions on contracts where the patterns are present but the textbook safe form is genuinely matched (or has acceptable alternatives).

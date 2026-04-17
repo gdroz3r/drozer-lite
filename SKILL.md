@@ -3,7 +3,7 @@ name: drozer-lite
 description: General-purpose pattern-level smart contract vulnerability scanner with cross-file awareness. Walks any smart contract project (Solidity, Rust/Anchor/CosmWasm/IC, Move, Cairo, Vyper — single file or multi-file), builds an inventory, clusters related modules, applies a curated checklist of 180+ vulnerability patterns derived from real benchmark gap analysis across 13+ protocol-type profiles, and returns structured findings. USE WHEN the user asks to scan, audit, or review smart contract source for security bugs and wants pattern-level coverage. Designed for protocols up to ~500KB / 100 files. Wall-clock 5-30 min depending on size. Does NOT do multi-step actor reasoning, chain analysis, or formal verification — for that, use the full drozer pipeline (`/droz3r`).
 ---
 
-# drozer-lite — open-source pattern-level smart contract auditor (v0.5.3, two-quote textbook break)
+# drozer-lite — open-source pattern-level smart contract auditor (v0.5.4, worksheet baseline restored)
 
 You are about to run a multi-file pattern-level smart contract audit using drozer-lite's curated checklist. Follow this 8-step workflow exactly. Do not invent steps, do not paraphrase the checklist, do not invent findings.
 
@@ -306,14 +306,12 @@ For EVERY candidate finding in the working set, fill this 6-field worksheet inte
 |---|-------|-----------|--------------|
 | 1 | Title | Y | One-line title. |
 | 2 | Textbook pattern (Y/N) | Y | Mark Y for canonical well-known patterns — CEI/reentrancy, signature replay, reward-debt / MasterChef accumulator, multisig stale-approval after owner removal, ERC4626 first-depositor inflation, flash-loan oracle manipulation, approve-then-transferFrom race, missing slippage on a swap router, missing event on admin setter, missing nonReentrant on a callback-reachable function, similar known patterns. Otherwise N. |
-| 3 | Specific-line break | Y if textbook=Y | TWO required code quotes: (a) the offending code as it exists, verbatim with `file:line`; (b) the textbook-safe equivalent from a NAMED recognized reference (cite which: OpenZeppelin / Uniswap V2 or V3 / ERC4626 spec / SWC mitigation / Chainlink integration guide / etc.). Plus one sentence stating the structural gap between (a) and (b). DROP if EITHER quote is missing, OR no recognized reference applies (in which case field 2 should have been N), OR the gap is just a hardening pattern with acceptable alternatives. Enforces Step 5 rule 4a. |
+| 3 | Specific-line break | Y if textbook=Y | `file:line` of the specific code that deviates from the textbook safe version + the one-line diff that would fix it. If textbook=Y and this field is unfillable from the current source, DROP. Enforces Step 5 rule 4a. |
 | 4 | Exploit sentence | Y | *"An attacker with [ROLE/PERMISSION] calls [FUNCTION] with [CONCRETE INPUT], and the result is [CONCRETE LOSS/IMPACT]."* All four brackets filled from in-scope code; no hypothetical future state (Step 5 rule 5a), no admin-cooperation hedge (Step 5 rule 5b). If any bracket fails, DROP. Enforces Gate A. |
 | 5 | Defender sentence | Y | *"This may be a false positive because [specific code-level reason backed by a visible line: a require, a modifier, a state-update ordering, a documented off-chain constraint]."* Strong defender → downgrade one tier (LOW → drop). Weak defender (intuition-only, "probably safe") → keep at original severity. No defender possible from visible code → keep at original severity. Enforces Gate C. |
 | 6 | Severity row | Y | Quote the row from the Severity decision table that justifies the chosen severity. If no row matches, default to LOW per the table's no-row rule and document why no row matched. Severity by feel is forbidden. |
 
 Exceptions that pass the worksheet without a full field 4: (a) cross-cluster economic flow candidates from Step 6 patterns 7-13 (explanation prefixed `"Pattern-level candidate:"`, confidence MEDIUM or LOW); (b) INFO-capped hardening items with a one-line justification for keeping. Both must still fill fields 1, 2, 5, 6.
-
-**Field 3 enforcement rationale (v0.5.3)**: Pattern presence is the easiest thing to over-claim — agents that "find" CEI violations on every contract with `.call`, "find" missing slippage on every swap router, or "find" share-inflation on every share-issuance contract are pattern-spamming. The two-quote requirement provides structural pressure against this. If no recognized reference textbook safe form for the claimed pattern exists in named industry sources (OpenZeppelin / Uniswap / ERC4626 spec / SWC mitigations / Chainlink integration guide / Curve / etc.), then field 2 was wrongly marked Y and the finding is not a textbook-class case — drop. If the safe form exists but the contract uses an acceptable alternative (e.g., dead-share mint on first deposit instead of OZ's virtual offsets, balance-after vs balance-before-checkpoint instead of explicit reentrancy guard, fee-on-transfer detection via post-transfer delta rather than blocklist), the structural gap is hardening-class — drop. Only when the contract is missing a fix that a recognized reference contains AND the alternative is not equivalent in protection is field 3 satisfied. Worksheet entries that fill field 3 with vague phrasing ("should add nonReentrant", "needs slippage parameter") without a NAMED reference + offending-code quote + safe-form quote are worksheet failures and DROP.
 
 After every candidate passes the worksheet, apply Gate B (reasoning reconciliation) over the full working set, then dedup/consolidation, then output.
 
@@ -437,7 +435,7 @@ After all three gates (A, B, C):
 ### Field rules
 
 - `scanner` is always `"drozer-lite"`.
-- `version` is `"0.5.3"`.
+- `version` is `"0.5.4"`.
 - `vulnerability_type` MUST be a snake_case canonical tag from the vocabulary at the bottom of this file. **You MUST pick the closest existing tag**; paraphrasing (e.g. writing `"tx.origin authorization"` when the canonical tag is `tx_origin_auth`) is NOT allowed. The vocabulary aligns with SWC Registry and Code4rena taxonomy — labels like `tx_origin_auth`, `missing_access_control`, `missing_input_validation`, `checks_effects_interactions_violation`, `signature_replay`, `reentrancy`, `oracle_staleness`, `division_by_zero`, `missing_timelock` are industry-standard and should match what external scorers and graders expect. Only if the vocabulary genuinely has no close match may you fall back to a short snake_case description — and that is an extraordinary case that should be flagged with a `warnings` entry.
 - `severity` is exactly one of `CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, `INFO`. Uppercase.
 - `confidence` is exactly one of `HIGH`, `MEDIUM`, `LOW`. Uppercase.
