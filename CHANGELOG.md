@@ -1,5 +1,49 @@
 # Changelog
 
+## v0.5.2 — Worksheet-enforced emission + vocabulary discipline (2026-04-17)
+
+**Headline**: Methodology-only changes addressing two failure classes observed in cross-run validation: (1) v0.5.1's gates and Step 5 rule 4a are sound but get skipped when SKILL.md is read as a manual fallback (parallel sub-agent invocation, low-context runs), and (2) two canonical vocab tags lost points to industry-standard rubrics due to abbreviation mismatch and an undefined discriminator between near-synonyms. Zero checklist edits, zero new checks. No benchmark-specific patterns or identifiers added.
+
+### Methodology changes
+
+1. **Pre-emission worksheet (Step 7.0, MANDATORY)**. Promotes Step 5 rule 4a, Gate A, Gate C, and the Severity decision table from prose to a 6-field structured worksheet that every candidate finding must fill before any other gate runs. REQUIRED fields with no code-backed value force a DROP. The worksheet is the mechanical commitment that the existing discipline rules were each consulted for this specific finding — eliminates the failure mode where prose-format gates are skipped under fallback invocation.
+
+2. **No-silent-drops rule**. Every drop, whether from worksheet failure, Gate A, Gate C downgrade-then-LOW-suppression, or any other filter, MUST emit a `warnings[]` entry of the form `"dropped: <title> | <reason>"`. Silent drops hide regressions and prevent post-mortems from distinguishing "the gate fired correctly" from "the gate was skipped." This is a diagnostic improvement, not a precision/recall change.
+
+3. **Gate C visibility (mandatory)**. Every Gate C decision — downgrade, drop, OR kept-at-original-severity — emits a `warnings[]` entry of the form `"defender_applied: <title> | <defender>"` (or `"defender_none: <title> | no mitigation visible"`). Makes the gate's reasoning auditable post-hoc; complements the no-silent-drops rule above.
+
+4. **Vocabulary discipline — unabbreviated industry-standard form is canonical**. Where a vocab tag exists in both an abbreviated and a full form, the canonical tag now matches the unabbreviated form used by SWC Registry / Code4rena / Sherlock. External scoring rubrics match strings literally; abbreviations lose points to no benefit. Concrete: `tx_origin_authentication` is now canonical, `tx_origin_auth` is the alias (not vice versa as in v0.5.1). General rule documented in the vocabulary section header.
+
+5. **Vocabulary discipline — near-synonym discriminator is mandatory**. Where two canonical tags describe overlapping patterns, each entry now carries an explicit discriminator that resolves the choice. Concrete: `checks_effects_interactions_violation` is the **default tag for any CEI-ordering bug**; `reentrancy` is reserved for cases where the proven exploit specifically requires a re-entrant callback. Without the discriminator, agents picked one tag or the other inconsistently across structurally identical findings, hurting reproducibility.
+
+### Validation method
+
+Per `post-audit-improvement-protocol.md` Phase A/B: the changes were derived by running the mandatory RC-AGENT Exclusion Test against every miss/FP from a v0.5.1 cross-run that scored below the documented baseline. The majority of failure events classified as RC-AGENT (existing methodology covered the bug class, but the agent failed to apply it under fallback / sub-agent invocation). One event classified as RC-NOVEL — a previously documented structural ceiling carried over unchanged. The remaining events classified as RC-METHOD candidates that survived the exclusion test honestly — all vocabulary-discipline issues, none requiring new checks. The worksheet (1 + 2 + 3 above) addresses the RC-AGENT cluster; the vocabulary changes (4 + 5) address the RC-METHOD cluster.
+
+### Not changed
+
+- `checklists/*.md` — zero edits. No new checks, no severity recalibration on existing checks.
+- Profile detection, clustering, cross-cluster sweep — unchanged.
+- Severity decision table — unchanged content; only its enforcement is tightened (worksheet field 6 requires citing a row).
+- All Step 5 hedging rules and Step 7 gate logic — unchanged content; only enforcement format is tightened.
+- No benchmark-specific keywords, identifiers, function names, or pattern descriptions added anywhere.
+
+### Anti-bloat audit
+
+| Change | Type | Lines added (SKILL.md) | Files modified |
+|---|---|---|---|
+| Pre-emission worksheet | extend | ~20 | 1 |
+| No-silent-drops + Gate C visibility | extend | ~3 | 1 |
+| Vocab discipline header | extend | ~4 | 1 |
+| Reentrancy discriminator | edit | net +1 | 1 |
+| tx_origin canonical reversal | edit | net +1 | 1 |
+| Version bump + header | edit | net 0 | 1 |
+| **Total** | — | **~29** | **1 file (SKILL.md)** |
+
+SKILL.md grows from 572 → ~601 lines. No checklist file is touched. No per-language tree is duplicated.
+
+---
+
 ## v0.5.1 — Adversarial-gated emission (2026-04-15)
 
 **Headline**: Forefy autonomous-audit public corpus **0.5909 → 0.7545** (+0.16). Zero checklist growth. Five new Step 5 / Step 7 discipline rules. Midas validation: all 9 HIGH findings preserved, ~14 LOW/INFO demoted to `warnings[]`.
