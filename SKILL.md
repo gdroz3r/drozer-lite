@@ -3,7 +3,7 @@ name: drozer-lite
 description: General-purpose pattern-level smart contract vulnerability scanner with cross-file awareness. Walks any smart contract project (Solidity, Rust/Anchor/CosmWasm/IC, Move, Cairo, Vyper — single file or multi-file), builds an inventory, clusters related modules, applies a curated checklist of 180+ vulnerability patterns derived from real benchmark gap analysis across 13+ protocol-type profiles, and returns structured findings. USE WHEN the user asks to scan, audit, or review smart contract source for security bugs and wants pattern-level coverage. Designed for protocols up to ~500KB / 100 files. Wall-clock 5-30 min depending on size. Does NOT do multi-step actor reasoning, chain analysis, or formal verification — for that, use the full drozer pipeline (`/droz3r`).
 ---
 
-# drozer-lite — open-source pattern-level smart contract auditor (v0.5.4, worksheet baseline restored)
+# drozer-lite — open-source pattern-level smart contract auditor (v0.5.5, binding worksheet + alias canonicalization)
 
 You are about to run a multi-file pattern-level smart contract audit using drozer-lite's curated checklist. Follow this 8-step workflow exactly. Do not invent steps, do not paraphrase the checklist, do not invent findings.
 
@@ -57,7 +57,7 @@ If you cannot find any source, ask the user to specify a path or paste source. D
 | Reentrancy guard | `nonReentrant`, `ReentrancyGuard` | manual flag, `#[non_reentrant]` in some frameworks | N/A (Move is not reentrant by design) | N/A (Cairo is not reentrant by design) |
 | Import/dependency | `import`, `using...for` | `use`, `mod`, Cargo.toml deps | `use`, `friend` | `use`, imports |
 
-When applying checks from `checklists/universal.md`, **translate the Solidity-phrased red flags to the target language's equivalent**. The METHODOLOGY is language-agnostic; only the SYNTAX differs. For example:
+When applying checks from `.claude/skills/drozer-lite/checklists/universal.md`, **translate the Solidity-phrased red flags to the target language's equivalent**. The METHODOLOGY is language-agnostic; only the SYNTAX differs. For example:
 - UNI-1 says "Missing `onlyOwner`/`onlyRole(...)` on state-changing function" → in Rust, check for missing `require!(authority == ...)` or `#[access_control(...)]`
 - UNI-3 says "Balance/ownership update AFTER `.call` or token transfer" → in Rust, check for CPI invocations before account state updates
 
@@ -172,7 +172,7 @@ CLUSTER PLAN (synthetic example):
 For each cluster:
 
 1. **Read the cluster's source — EVERY LINE, NO EXCEPTIONS.** Read each file in the cluster fully. If a file exceeds ~40KB (~500 lines), read it in sequential chunks using offset+limit (e.g. offset=0 limit=500, then offset=500 limit=500, etc.) until the entire file is read. Do NOT skip, sample, or "read the important parts." Every line of in-scope source must be read. Partial source reading is the #1 cause of missed findings — a 25% read produces 25% recall. This is non-negotiable.
-2. **Read the relevant checklists** — Read `checklists/universal.md` always, plus each auto-loaded profile checklist (`checklists/{profile}.md`).
+2. **Read the relevant checklists** — Read `.claude/skills/drozer-lite/checklists/universal.md` always, plus each auto-loaded profile checklist (`.claude/skills/drozer-lite/checklists/{profile}.md`). These paths are relative to the project root (current working directory) where the skill is invoked.
 3. **Reference the inventory from Step 2** — for cross-cluster bug detection. When the cluster you're analyzing calls a function in another cluster, look up the target's signature in the inventory; you don't need to re-read the other cluster's full source.
 4. **Apply each loaded check** — for each check in the loaded checklists, examine the cluster source. **If the target language is not Solidity, translate the check's Solidity-phrased red flags to the equivalent in the target language** using the concept-mapping table from Step 1. The METHODOLOGY is language-agnostic; only the SYNTAX differs. A check matches when ALL of:
    - The **Pattern** field describes a code construct that exists in the cluster source (in the target language's idiom)
@@ -310,10 +310,24 @@ For EVERY candidate finding in the working set, fill this 6-field worksheet inte
 | 4 | Exploit sentence | Y | *"An attacker with [ROLE/PERMISSION] calls [FUNCTION] with [CONCRETE INPUT], and the result is [CONCRETE LOSS/IMPACT]."* All four brackets filled from in-scope code; no hypothetical future state (Step 5 rule 5a), no admin-cooperation hedge (Step 5 rule 5b). If any bracket fails, DROP. Enforces Gate A. |
 | 5 | Defender sentence | Y | *"This may be a false positive because [specific code-level reason backed by a visible line: a require, a modifier, a state-update ordering, a documented off-chain constraint]."* Strong defender → downgrade one tier (LOW → drop). Weak defender (intuition-only, "probably safe") → keep at original severity. No defender possible from visible code → keep at original severity. Enforces Gate C. |
 | 6 | Severity row | Y | Quote the row from the Severity decision table that justifies the chosen severity. If no row matches, default to LOW per the table's no-row rule and document why no row matched. Severity by feel is forbidden. |
+| 7 | Evidence class | Y | Classify the evidence supporting field 4's `[CONCRETE LOSS]` into exactly ONE of: **A** — specific line(s) in scope + concrete input range + concrete loss to an actor other than the caller themselves, with no external precondition. **B** — specific-line break + reachable state precondition that any permissionless caller can trigger with in-scope code. **C** — specific-line break but impact requires an action by a trusted/semi-trusted actor, off-chain configuration (e.g. admin reuses a merkle root), or a currently-absent cross-contract dependency. **D** — pattern presence without a specific-line break in the current source. Binding caps: **A** no cap; **B** cap HIGH; **C** cap LOW (moves to `warnings[]` via Step 7.1a filter); **D** DROP. Emitting a class C/D finding above its cap is a worksheet violation — the `warnings[]` entry `"evidence_class_cap_applied: <title> | <class> → capped at <severity>"` MUST be written. This field is the mechanical binding of the Weak-evidence severity floor described later in Step 5. |
 
-Exceptions that pass the worksheet without a full field 4: (a) cross-cluster economic flow candidates from Step 6 patterns 7-13 (explanation prefixed `"Pattern-level candidate:"`, confidence MEDIUM or LOW); (b) INFO-capped hardening items with a one-line justification for keeping. Both must still fill fields 1, 2, 5, 6.
+Exceptions that pass the worksheet without a full field 4: (a) cross-cluster economic flow candidates from Step 6 patterns 7-13 (explanation prefixed `"Pattern-level candidate:"`, confidence MEDIUM or LOW); (b) INFO-capped hardening items with a one-line justification for keeping. Both must still fill fields 1, 2, 5, 6, 7.
 
-After every candidate passes the worksheet, apply Gate B (reasoning reconciliation) over the full working set, then dedup/consolidation, then output.
+After every candidate passes the worksheet, apply Step 7.0a (independent re-read), then Gate A, then Gate C, then Gate B over the full working set, then dedup/consolidation, then output.
+
+### Step 7.0a — Independent re-read (v0.5.5)
+
+After all candidate worksheets are filled but before Gate A, perform an **independent re-read** of each worksheet. Read fields 1–7 as if they were presented to you by a different auditor and the source code was unavailable — answer only from the worksheet:
+
+1. Does field 3 (specific-line break) name a concrete `file:line` and a one-line diff, or is it a class description ("reentrancy pattern present", "merkle leaf could replay")?
+2. Does field 4 (exploit sentence) show a loss to an actor that is NOT the caller themselves, with a concrete magnitude ("X tokens to attacker", "pool reserves desynced by Y")?
+3. Does field 5 (defender sentence) name a specific line-level mitigation or explicitly state "no mitigation visible"?
+4. Does field 7 (evidence class) align with what fields 3/4/5 describe? A field 7 = A claim that is contradicted by a field 5 = "no defender possible but impact requires admin action" is inconsistent — that is evidence class C, not A.
+
+Any NO answer means the finding is a reasoning artifact that the worksheet alone does not justify. **DROP** it and write `warnings[]` entry `"independent_read_failed: <title> | <which field was insufficient>"`. This is the single-agent approximation of independent-context second-agent validation identified as the residual gap in the v0.5.4 CHANGELOG — the worksheet alone becomes the audit trail, so findings that survive only because of accumulated in-context reasoning fail the re-read.
+
+**Rationale**: Single-agent self-review is weak against confirmation bias. Forcing the agent to re-evaluate each finding using only the worksheet (no prior reasoning, no accumulated context) surfaces findings where the initial classification was carried by conversational momentum rather than code evidence.
 
 ### Gate A — Exploit-Sentence Gate (precision)
 
@@ -382,9 +396,11 @@ After all three gates (A, B, C):
 1. Group surviving findings by `(canonical_vulnerability_type, affected_file, affected_function)`. Two findings with the same triple are duplicates — keep the highest-severity.
 1a. **Severity-tier output filter** (new in v0.5.1): by default, the `findings[]` array contains only `CRITICAL`, `HIGH`, and `MEDIUM`. `LOW` and `INFO` findings move to the `warnings[]` array as `"low: <title>"` or `"info: <title>"` strings — preserved in output, out of the main findings list. Rationale: LOW/INFO findings are hardening observations; most scoring rubrics penalize them as false positives relative to the expected bug set. A user who wants them (real-audit context) can invoke with `--include-low` or `--full` and the skill restores them to `findings[]`.
 
-2. **Root-cause consolidation** (new in v0.5.1): after dedup, group by `(canonical_vulnerability_type, affected_file)`. If two or more findings share the same vulnerability_type in the same file but hit different functions, apply the **"could one PR fix all of them?"** test:
-   - If a single code change would resolve all of them (e.g., `executeTransfer` and `executeTokenTransfer` both missing a nonce, fixed by adding one shared nonce-check helper) → **consolidate into ONE finding**. Name the primary function in `affected_function` and list siblings in the `explanation` with "(also affects: fnA, fnB)".
-   - If the fixes are independent (e.g., reentrancy in `withdrawTo` vs access control missing on `setRate` — different fix patterns) → keep as separate findings.
+2. **Root-cause consolidation** (new in v0.5.1, tightened v0.5.5): after dedup, group by `(canonical_vulnerability_type, affected_file)`. For each group of N>1 findings apply this **mechanical same-symbol test** using field 3 (specific-line break) from each worksheet:
+   - Extract the named symbol each fix touches: the function body modified, the shared helper added, the typehash/struct/modifier/mapping referenced, the import or interface added.
+   - If all N fixes touch the SAME named symbol (same function, same helper, same shared type-hash, same mapping, same added import) → **CONSOLIDATE into ONE finding**. Name the primary function in `affected_function` and list siblings in `explanation` with `(also affects: fnA, fnB)`. Example: `executeTransfer` and `executeTokenTransfer` both missing a nonce, both fixed by adding the same shared nonce-check helper → one finding.
+   - Keep separate ONLY when the fixes modify DIFFERENT named symbols. Example: a missing `require` in `setFee` vs a missing nonce in `signedMint` → different symbols, different fixes, keep separate.
+   - **Not valid reasons to keep separate**: "the two functions are independent", "the fix pattern is slightly different in wording", "one uses EIP-712 and the other doesn't" — if both diffs add the same named symbol to resolve the same vulnerability_type, it is one finding regardless of surrounding syntax. Separation based on surrounding context, not fix symbols, is an emit-time consolidation violation.
 3. The highest-severity finding wins each consolidated slot.
 4. Output a single JSON object matching the schema below. By default, no prose around it, no markdown fences. (If the user explicitly asked for a Markdown report, render the same content as a Markdown report — see the Markdown variant at the bottom.)
 
@@ -435,7 +451,7 @@ After all three gates (A, B, C):
 ### Field rules
 
 - `scanner` is always `"drozer-lite"`.
-- `version` is `"0.5.4"`.
+- `version` is `"0.5.5"`.
 - `vulnerability_type` MUST be a snake_case canonical tag from the vocabulary at the bottom of this file. **You MUST pick the closest existing tag**; paraphrasing (e.g. writing `"tx.origin authorization"` when the canonical tag is `tx_origin_auth`) is NOT allowed. The vocabulary aligns with SWC Registry and Code4rena taxonomy — labels like `tx_origin_auth`, `missing_access_control`, `missing_input_validation`, `checks_effects_interactions_violation`, `signature_replay`, `reentrancy`, `oracle_staleness`, `division_by_zero`, `missing_timelock` are industry-standard and should match what external scorers and graders expect. Only if the vocabulary genuinely has no close match may you fall back to a short snake_case description — and that is an extraordinary case that should be flagged with a `warnings` entry.
 - `severity` is exactly one of `CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, `INFO`. Uppercase.
 - `confidence` is exactly one of `HIGH`, `MEDIUM`, `LOW`. Uppercase.
@@ -489,6 +505,23 @@ These are the snake_case tags. Each tag has a fixed meaning and an optional SWC/
 **Vocabulary discipline (v0.5.2)**: Where multiple naming forms exist for the same concept (full vs abbreviated, alternate framings), the canonical tag chosen here matches the **unabbreviated industry-standard form** used by SWC Registry / Code4rena / Sherlock. Aliases are listed for cross-reference but MUST NOT be emitted in `vulnerability_type` — emit the canonical only. External scoring rubrics match strings literally; abbreviations lose points to no benefit.
 
 **Tag selection between near-synonyms (v0.5.2)**: Where two canonical tags describe overlapping patterns (e.g. `reentrancy` vs `checks_effects_interactions_violation`), each entry includes a discriminator that resolves the choice. When the discriminator does not clearly resolve, prefer the broader/default tag. Do NOT invent new tags to "split the difference."
+
+**Alias canonicalization (v0.5.5)**: Before emitting `vulnerability_type`, rewrite aliases to canonicals using the table below. This is a **mechanical lookup, not a reasoning step** — if your chosen tag appears in the left column, emit the right column verbatim. External scoring rubrics, finding-dedup tools, and SWC/Solodit cross-referencing pipelines match strings literally; paraphrases cost points against every consumer of the output. The alias list here records paraphrases that real LLM invocations have produced for the same underlying bug — add to this table when a new paraphrase is observed, do not add benchmark-specific mappings.
+
+| Alias (do NOT emit) | Canonical (emit this) | Reason |
+|---|---|---|
+| `tx_origin_auth` | `tx_origin_authentication` | SWC-115 / Code4rena / Sherlock use the unabbreviated form |
+| `reentrancy` (when only CEI ordering is wrong; no proven re-entrant callback needed for the exploit) | `checks_effects_interactions_violation` | Default tag per discriminator in Reentrancy section below |
+| `cei_violation` | `checks_effects_interactions_violation` | Abbreviation; same underlying canonical |
+| `no_access_control` | `missing_access_control` | SWC-105 unabbreviated |
+| `no_input_validation` / `input_validation_missing` | `missing_input_validation` | SWC-123 unabbreviated, consistent with other `missing_*` tags |
+| `sig_replay` / `signature_replayable` | `signature_replay` | SWC-121 unabbreviated |
+| `div_by_zero` / `divide_by_zero` | `division_by_zero` | Unabbreviated noun form |
+| `reward_debt_stale_on_balance_change` / `reward_accounting_bug` | `lifecycle_state_residue` | Reward-debt-on-balance-change is an instance of lifecycle state residue; use the canonical unless a more specific tag applies |
+| `no_slippage_check` / `slippage_missing` | `missing_slippage_protection` | Consistent with `missing_*` family |
+| `no_event_emitted` / `missing_event` | `missing_event_emission` | Full noun form |
+
+If your chosen tag is NOT in the left column and ALSO not in the canonical list further below, write a short snake_case fallback AND add a `warnings[]` entry `"novel_vulnerability_type: <tag> | <one-line reason no canonical fits>"` so the gap is visible for future vocabulary updates.
 
 ### Reentrancy / external call ordering
 - `checks_effects_interactions_violation` — External call (or token transfer) executes BEFORE the function updates the state the call's safety depends on. This is the underlying anti-pattern that enables reentrancy and similar timing exploits. **Default tag for any CEI-ordering bug** — pick this unless the proven exploit path specifically requires a re-entrant callback to drain. (SWC-107)

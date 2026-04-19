@@ -1,5 +1,39 @@
 # Changelog
 
+## v0.5.5 — Binding worksheet, alias canonicalization, independent re-read (2026-04-19)
+
+**Headline**: Four targeted precision fixes that move existing advisory rules into binding worksheet fields. No new vulnerability patterns, no new checklists, no new agents. All four fixes address gaps identified by the post-audit improvement protocol against independent scoring rubrics — each one has an external-standards justification (SWC Registry / Code4rena / Sherlock vocabulary, weak-evidence audit-maturity taxonomy, independent-context review practice, symbol-level fix consolidation from Trail of Bits report guidance).
+
+### What changed
+
+1. **Alias canonicalization table in the vocabulary section** — adds a mechanical alias → canonical rewrite table. Before emitting `vulnerability_type`, the agent now performs a lookup (not reasoning) to convert common LLM paraphrases into the unabbreviated industry-standard form. Addresses: agents emitting `tx_origin_auth` when SWC-115 is `tx_origin_authentication`; emitting `reentrancy` when the exploit requires only CEI ordering to be wrong (discriminator: `checks_effects_interactions_violation` is the default, `reentrancy` is for proven callback drain). The table lists known paraphrases. Adding paraphrases to the table is expected maintenance; adding benchmark-specific mappings is forbidden per the Check Authorship Rules.
+
+2. **Worksheet field 7 — Evidence class with binding severity caps** — adds a REQUIRED seventh field to the Step 7.0 pre-emission worksheet. Each candidate is classified A / B / C / D. Caps: A no cap, B HIGH, C LOW (moves to warnings via Step 7.1a tier filter), D DROP. The "Weak-evidence severity floor" section that already existed in v0.5.1 is now bound to a worksheet field and therefore mechanically enforceable — emitting a class C finding above LOW produces a `warnings[]` entry and the severity is rewritten. Before this change, the floor was prose-advisory and agents could emit above the cap by writing prose that argued around it.
+
+3. **Step 7.0a — Independent re-read** — new step between worksheet completion and Gate A. The agent re-reads each worksheet using ONLY fields 1-7 (pretending no source access and no prior reasoning) and must answer four consistency questions. Any NO answer drops the finding with a `warnings[]` entry. This is the single-agent approximation of the independent-context second-agent validation that the v0.5.4 CHANGELOG identified as the known residual gap. The worksheet becomes the audit trail; findings that survive only because of accumulated in-context reasoning fail the re-read.
+
+4. **Step 7.2 root-cause consolidation — mechanical same-symbol test** — replaces the prose "could one PR fix all of them?" test with an extraction-based test. The agent reads field 3 (specific-line break) from each worksheet in the group and checks whether all fixes touch the same named symbol (same function body, same shared helper, same typehash, same mapping). Same symbol → consolidate. Different symbols → separate. Surrounding syntactic differences ("one uses EIP-712 and the other doesn't") are explicitly not valid reasons to keep separate. This closes the case-class where two sibling functions with identical fix patterns were split into two findings, producing an FP penalty against scoring rubrics that expect one consolidated finding per root cause.
+
+### Anti-bloat audit
+
+| Change | Type | Lines | Files modified |
+|---|---|---|---|
+| Worksheet field 7 (Evidence class) | extend | +2 | SKILL.md |
+| Step 7.0a (Independent re-read) | insert | +13 | SKILL.md |
+| Step 7.2 consolidation tightening | replace | +5 net | SKILL.md |
+| Alias canonicalization table | insert | +15 | SKILL.md |
+| Version bump + CHANGELOG | edit | +38 (this entry) | SKILL.md, CHANGELOG.md |
+| **Total** | — | **~35 net in SKILL.md** | **2 files** |
+
+No new checklists. No new profiles. No new hard rules. All four changes are mechanical enforcement of rules that already existed as advisory prose. Per the Post-Audit Improvement Protocol anti-bloat gates: line budget check PASS (SKILL.md 595 → ~630, well below the 1100 cap); duplication check PASS (each change is in a single file); marginal value check PASS (each change is a mechanical gate, not a new pattern check); overlap check PASS (the independent re-read is not Gate B — Gate B looks for dismissal phrases to RESTORE findings, the re-read looks for consistency failures to DROP findings; opposite directions).
+
+### What is NOT being attempted in v0.5.5
+
+- No new vulnerability patterns. Checklists are byte-identical to v0.5.4.
+- No pattern-level allowlists or denylists. The precision fixes operate on structure (worksheet fields, mechanical tests), not on bug classes.
+- No benchmark-specific adjustments. Every change has a non-benchmark justification cited in its header line.
+- No replacement of the v0.5.2 worksheet baseline. Field 7 extends the worksheet; it does not replace any existing field.
+
 ## v0.5.4 — Revert v0.5.3; restore worksheet baseline (2026-04-17)
 
 **Headline**: v0.5.3's two-quote / named-reference tightening of worksheet field 3 was a regression in clean-room cross-run validation. Rolled back to the v0.5.2 worksheet contract. SKILL.md content is byte-identical to v0.5.2 except for version strings.
