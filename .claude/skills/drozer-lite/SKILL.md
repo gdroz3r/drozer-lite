@@ -3,7 +3,7 @@ name: drozer-lite
 description: General-purpose pattern-level smart contract vulnerability scanner with cross-file awareness. Walks any smart contract project (Solidity, Rust/Anchor/CosmWasm/IC, Move, Cairo, Vyper — single file or multi-file), builds an inventory, clusters related modules, applies a curated checklist of 180+ vulnerability patterns derived from real benchmark gap analysis across 13+ protocol-type profiles, and returns structured findings. USE WHEN the user asks to scan, audit, or review smart contract source for security bugs and wants pattern-level coverage. Designed for protocols up to ~500KB / 100 files. Wall-clock 5-30 min depending on size. Does NOT do multi-step actor reasoning, chain analysis, or formal verification — for that, use the full drozer pipeline (`/droz3r`).
 ---
 
-# drozer-lite — open-source pattern-level smart contract auditor (v0.5.5, binding worksheet + alias canonicalization)
+# drozer-lite — open-source pattern-level smart contract auditor (v0.5.6, alias canonicalization only; worksheet back to v0.5.4 baseline)
 
 You are about to run a multi-file pattern-level smart contract audit using drozer-lite's curated checklist. Follow this 8-step workflow exactly. Do not invent steps, do not paraphrase the checklist, do not invent findings.
 
@@ -310,24 +310,10 @@ For EVERY candidate finding in the working set, fill this 6-field worksheet inte
 | 4 | Exploit sentence | Y | *"An attacker with [ROLE/PERMISSION] calls [FUNCTION] with [CONCRETE INPUT], and the result is [CONCRETE LOSS/IMPACT]."* All four brackets filled from in-scope code; no hypothetical future state (Step 5 rule 5a), no admin-cooperation hedge (Step 5 rule 5b). If any bracket fails, DROP. Enforces Gate A. |
 | 5 | Defender sentence | Y | *"This may be a false positive because [specific code-level reason backed by a visible line: a require, a modifier, a state-update ordering, a documented off-chain constraint]."* Strong defender → downgrade one tier (LOW → drop). Weak defender (intuition-only, "probably safe") → keep at original severity. No defender possible from visible code → keep at original severity. Enforces Gate C. |
 | 6 | Severity row | Y | Quote the row from the Severity decision table that justifies the chosen severity. If no row matches, default to LOW per the table's no-row rule and document why no row matched. Severity by feel is forbidden. |
-| 7 | Evidence class | Y | Classify the evidence supporting field 4's `[CONCRETE LOSS]` into exactly ONE of: **A** — specific line(s) in scope + concrete input range + concrete loss to an actor other than the caller themselves, with no external precondition. **B** — specific-line break + reachable state precondition that any permissionless caller can trigger with in-scope code. **C** — specific-line break but impact requires an action by a trusted/semi-trusted actor, off-chain configuration (e.g. admin reuses a merkle root), or a currently-absent cross-contract dependency. **D** — pattern presence without a specific-line break in the current source. Binding caps: **A** no cap; **B** cap HIGH; **C** cap LOW (moves to `warnings[]` via Step 7.1a filter); **D** DROP. Emitting a class C/D finding above its cap is a worksheet violation — the `warnings[]` entry `"evidence_class_cap_applied: <title> | <class> → capped at <severity>"` MUST be written. This field is the mechanical binding of the Weak-evidence severity floor described later in Step 5. |
 
-Exceptions that pass the worksheet without a full field 4: (a) cross-cluster economic flow candidates from Step 6 patterns 7-13 (explanation prefixed `"Pattern-level candidate:"`, confidence MEDIUM or LOW); (b) INFO-capped hardening items with a one-line justification for keeping. Both must still fill fields 1, 2, 5, 6, 7.
+Exceptions that pass the worksheet without a full field 4: (a) cross-cluster economic flow candidates from Step 6 patterns 7-13 (explanation prefixed `"Pattern-level candidate:"`, confidence MEDIUM or LOW); (b) INFO-capped hardening items with a one-line justification for keeping. Both must still fill fields 1, 2, 5, 6.
 
-After every candidate passes the worksheet, apply Step 7.0a (independent re-read), then Gate A, then Gate C, then Gate B over the full working set, then dedup/consolidation, then output.
-
-### Step 7.0a — Independent re-read (v0.5.5)
-
-After all candidate worksheets are filled but before Gate A, perform an **independent re-read** of each worksheet. Read fields 1–7 as if they were presented to you by a different auditor and the source code was unavailable — answer only from the worksheet:
-
-1. Does field 3 (specific-line break) name a concrete `file:line` and a one-line diff, or is it a class description ("reentrancy pattern present", "merkle leaf could replay")?
-2. Does field 4 (exploit sentence) show a loss to an actor that is NOT the caller themselves, with a concrete magnitude ("X tokens to attacker", "pool reserves desynced by Y")?
-3. Does field 5 (defender sentence) name a specific line-level mitigation or explicitly state "no mitigation visible"?
-4. Does field 7 (evidence class) align with what fields 3/4/5 describe? A field 7 = A claim that is contradicted by a field 5 = "no defender possible but impact requires admin action" is inconsistent — that is evidence class C, not A.
-
-Any NO answer means the finding is a reasoning artifact that the worksheet alone does not justify. **DROP** it and write `warnings[]` entry `"independent_read_failed: <title> | <which field was insufficient>"`. This is the single-agent approximation of independent-context second-agent validation identified as the residual gap in the v0.5.4 CHANGELOG — the worksheet alone becomes the audit trail, so findings that survive only because of accumulated in-context reasoning fail the re-read.
-
-**Rationale**: Single-agent self-review is weak against confirmation bias. Forcing the agent to re-evaluate each finding using only the worksheet (no prior reasoning, no accumulated context) surfaces findings where the initial classification was carried by conversational momentum rather than code evidence.
+After every candidate passes the worksheet, apply Gate B (reasoning reconciliation) over the full working set, then dedup/consolidation, then output.
 
 ### Gate A — Exploit-Sentence Gate (precision)
 
@@ -396,11 +382,9 @@ After all three gates (A, B, C):
 1. Group surviving findings by `(canonical_vulnerability_type, affected_file, affected_function)`. Two findings with the same triple are duplicates — keep the highest-severity.
 1a. **Severity-tier output filter** (new in v0.5.1): by default, the `findings[]` array contains only `CRITICAL`, `HIGH`, and `MEDIUM`. `LOW` and `INFO` findings move to the `warnings[]` array as `"low: <title>"` or `"info: <title>"` strings — preserved in output, out of the main findings list. Rationale: LOW/INFO findings are hardening observations; most scoring rubrics penalize them as false positives relative to the expected bug set. A user who wants them (real-audit context) can invoke with `--include-low` or `--full` and the skill restores them to `findings[]`.
 
-2. **Root-cause consolidation** (new in v0.5.1, tightened v0.5.5): after dedup, group by `(canonical_vulnerability_type, affected_file)`. For each group of N>1 findings apply this **mechanical same-symbol test** using field 3 (specific-line break) from each worksheet:
-   - Extract the named symbol each fix touches: the function body modified, the shared helper added, the typehash/struct/modifier/mapping referenced, the import or interface added.
-   - If all N fixes touch the SAME named symbol (same function, same helper, same shared type-hash, same mapping, same added import) → **CONSOLIDATE into ONE finding**. Name the primary function in `affected_function` and list siblings in `explanation` with `(also affects: fnA, fnB)`. Example: `executeTransfer` and `executeTokenTransfer` both missing a nonce, both fixed by adding the same shared nonce-check helper → one finding.
-   - Keep separate ONLY when the fixes modify DIFFERENT named symbols. Example: a missing `require` in `setFee` vs a missing nonce in `signedMint` → different symbols, different fixes, keep separate.
-   - **Not valid reasons to keep separate**: "the two functions are independent", "the fix pattern is slightly different in wording", "one uses EIP-712 and the other doesn't" — if both diffs add the same named symbol to resolve the same vulnerability_type, it is one finding regardless of surrounding syntax. Separation based on surrounding context, not fix symbols, is an emit-time consolidation violation.
+2. **Root-cause consolidation** (new in v0.5.1): after dedup, group by `(canonical_vulnerability_type, affected_file)`. If two or more findings share the same vulnerability_type in the same file but hit different functions, apply the **"could one PR fix all of them?"** test:
+   - If a single code change would resolve all of them (e.g., `executeTransfer` and `executeTokenTransfer` both missing a nonce, fixed by adding one shared nonce-check helper) → **consolidate into ONE finding**. Name the primary function in `affected_function` and list siblings in the `explanation` with "(also affects: fnA, fnB)".
+   - If the fixes are independent (e.g., reentrancy in `withdrawTo` vs access control missing on `setRate` — different fix patterns) → keep as separate findings.
 3. The highest-severity finding wins each consolidated slot.
 4. Output a single JSON object matching the schema below. By default, no prose around it, no markdown fences. (If the user explicitly asked for a Markdown report, render the same content as a Markdown report — see the Markdown variant at the bottom.)
 
@@ -451,7 +435,7 @@ After all three gates (A, B, C):
 ### Field rules
 
 - `scanner` is always `"drozer-lite"`.
-- `version` is `"0.5.5"`.
+- `version` is `"0.5.6"`.
 - `vulnerability_type` MUST be a snake_case canonical tag from the vocabulary at the bottom of this file. **You MUST pick the closest existing tag**; paraphrasing (e.g. writing `"tx.origin authorization"` when the canonical tag is `tx_origin_auth`) is NOT allowed. The vocabulary aligns with SWC Registry and Code4rena taxonomy — labels like `tx_origin_auth`, `missing_access_control`, `missing_input_validation`, `checks_effects_interactions_violation`, `signature_replay`, `reentrancy`, `oracle_staleness`, `division_by_zero`, `missing_timelock` are industry-standard and should match what external scorers and graders expect. Only if the vocabulary genuinely has no close match may you fall back to a short snake_case description — and that is an extraordinary case that should be flagged with a `warnings` entry.
 - `severity` is exactly one of `CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, `INFO`. Uppercase.
 - `confidence` is exactly one of `HIGH`, `MEDIUM`, `LOW`. Uppercase.

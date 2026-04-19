@@ -1,5 +1,42 @@
 # Changelog
 
+## v0.5.6 — Revert v0.5.5 worksheet extensions; keep alias canonicalization only (2026-04-19)
+
+**Headline**: Three of the four v0.5.5 changes were worksheet-level enforcement additions that single-agent runs demonstrably did not engage — cross-run validation showed the `warnings[]` telemetry that the new rules were designed to emit was always empty, indicating agents skipped the mechanics entirely. The regression pattern is identical to v0.5.3: adding single-agent worksheet strictness predicts regressions, and the v0.5.4 CHANGELOG already documented this. v0.5.6 reverts the three non-engaging changes and keeps only the alias canonicalization table, which is a mechanical string rewrite and demonstrated clean wins without side effects.
+
+### What was reverted (3 of 4 v0.5.5 changes)
+
+1. **Worksheet field 7 — Evidence class A/B/C/D with binding severity caps** — REVERTED. The field required agents to self-classify evidence and auto-cap severity for classes C and D. In practice, agents either skipped the field, classified everything as class A, or classified valid findings as class C and silently dropped them. The `warnings[]` telemetry for cap applications was never emitted in cross-run validation. The field introduced a regression channel (valid findings getting class C cap) without producing wins (weak-evidence findings still emitted above the cap).
+
+2. **Step 7.0a — Independent re-read** — REVERTED. The step asked agents to re-evaluate each worksheet using only the worksheet fields (simulating independent-context review). The `warnings[]` entries for drops never appeared; instead the step appears to have provided a rationalization path for dropping findings the agent was already unsure about. Same regression channel as v0.5.3's named-reference requirement — worksheet-level strictness surfaced as FN in cross-run validation. The v0.5.4 CHANGELOG's prediction that "single-agent worksheet enforcement is unlikely to break past the v0.5.2 baseline" held.
+
+3. **Step 7.2 same-symbol consolidation tightening** — REVERTED to the v0.5.1 prose formulation. The mechanical "same named symbol" test didn't produce fewer emissions in cross-run validation; agents continued to split sibling findings using surrounding-context arguments. The tightening added rule surface area without changing behavior. Reverted to the simpler `"could one PR fix all of them?"` test.
+
+### What was kept (1 of 4)
+
+4. **Alias canonicalization table** — KEPT. This is a mechanical string rewrite at emit time with no agent judgment required. Cross-run validation showed clear wins (agents now consistently emit the SWC/Code4rena/Sherlock unabbreviated canonical for `tx_origin_authentication`, `checks_effects_interactions_violation`, etc.) with no observed regressions. The table is the v0.5.5 change that belongs in the class of "mechanical lookup, not reasoning" — the same class as v0.5.2's vocabulary discipline paragraph.
+
+### Design principle reaffirmed by this revert
+
+The v0.5.4 CHANGELOG named the structural constraint: **single-agent worksheet enforcement has a ceiling**. Adding more fields, more gates, or stricter prose within the same single-agent loop does not break the ceiling — it just adds regression surface. The v0.5.5 experiment confirmed this for the third time (v0.5.3 experiment, v0.5.4 prediction, v0.5.5 confirmation). Future precision work at this layer should either be (a) mechanical lookups like the alias table, (b) content additions to the canonical vocabulary (new canonical tags for common paraphrases), or (c) checklist-level changes that target specific false-positive classes with code-level guards. Worksheet-level agent-judgment additions should be treated as predicted regressions pending a structurally different validation mechanism (e.g., independent second-agent review actually implemented as a separate agent invocation, not simulated within one agent).
+
+### Anti-bloat audit
+
+| Change | Type | Lines | Files modified |
+|---|---|---|---|
+| Revert worksheet field 7 | revert | −2 | SKILL.md |
+| Revert Step 7.0a section | revert | −13 | SKILL.md |
+| Revert Step 7.2 tightening | revert | −5 | SKILL.md |
+| Keep alias canonicalization | keep | 0 | SKILL.md |
+| Version bump + CHANGELOG | edit | +~45 (this entry) | SKILL.md, CHANGELOG.md |
+| **Total** | — | **~−20 net in SKILL.md** | **2 files** |
+
+### What is NOT being attempted in v0.5.6
+
+- No new vulnerability patterns. Checklists are byte-identical to v0.5.4/v0.5.5.
+- No replacement enforcement mechanism for the reverted rules. The weak-evidence severity floor prose from v0.5.1 remains as advisory guidance; agents apply it at their discretion (as before).
+- No second-agent validation. That's the known residual gap; shipping it would require changes outside the single-agent skill, out of scope here.
+
 ## v0.5.5 — Binding worksheet, alias canonicalization, independent re-read (2026-04-19)
 
 **Headline**: Four targeted precision fixes that move existing advisory rules into binding worksheet fields. No new vulnerability patterns, no new checklists, no new agents. All four fixes address gaps identified by the post-audit improvement protocol against independent scoring rubrics — each one has an external-standards justification (SWC Registry / Code4rena / Sherlock vocabulary, weak-evidence audit-maturity taxonomy, independent-context review practice, symbol-level fix consolidation from Trail of Bits report guidance).
