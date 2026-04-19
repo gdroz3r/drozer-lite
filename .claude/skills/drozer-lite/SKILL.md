@@ -3,7 +3,7 @@ name: drozer-lite
 description: General-purpose pattern-level smart contract vulnerability scanner with cross-file awareness. Walks any smart contract project (Solidity, Rust/Anchor/CosmWasm/IC, Move, Cairo, Vyper — single file or multi-file), builds an inventory, clusters related modules, applies a curated checklist of 180+ vulnerability patterns derived from real benchmark gap analysis across 13+ protocol-type profiles, and returns structured findings. USE WHEN the user asks to scan, audit, or review smart contract source for security bugs and wants pattern-level coverage. Designed for protocols up to ~500KB / 100 files. Wall-clock 5-30 min depending on size. Does NOT do multi-step actor reasoning, chain analysis, or formal verification — for that, use the full drozer pipeline (`/droz3r`).
 ---
 
-# drozer-lite — open-source pattern-level smart contract auditor (v0.5.6, alias canonicalization only; worksheet back to v0.5.4 baseline)
+# drozer-lite — open-source pattern-level smart contract auditor (v0.5.7, broadened CEI discriminator + schema-mismatch LOW drop + shared-check consolidation)
 
 You are about to run a multi-file pattern-level smart contract audit using drozer-lite's curated checklist. Follow this 8-step workflow exactly. Do not invent steps, do not paraphrase the checklist, do not invent findings.
 
@@ -380,11 +380,17 @@ This gate prevents the agent from reasoning itself out of reporting real bugs th
 After all three gates (A, B, C):
 
 1. Group surviving findings by `(canonical_vulnerability_type, affected_file, affected_function)`. Two findings with the same triple are duplicates — keep the highest-severity.
-1a. **Severity-tier output filter** (new in v0.5.1): by default, the `findings[]` array contains only `CRITICAL`, `HIGH`, and `MEDIUM`. `LOW` and `INFO` findings move to the `warnings[]` array as `"low: <title>"` or `"info: <title>"` strings — preserved in output, out of the main findings list. Rationale: LOW/INFO findings are hardening observations; most scoring rubrics penalize them as false positives relative to the expected bug set. A user who wants them (real-audit context) can invoke with `--include-low` or `--full` and the skill restores them to `findings[]`.
+1a. **Severity-tier output filter** (new in v0.5.1, schema-mismatch rule added v0.5.7): by default, the `findings[]` array contains only `CRITICAL`, `HIGH`, and `MEDIUM`. `LOW` and `INFO` findings move to the `warnings[]` array as `"low: <title>"` or `"info: <title>"` strings — preserved in output, out of the main findings list. Rationale: LOW/INFO findings are hardening observations; most scoring rubrics penalize them as false positives relative to the expected bug set. A user who wants them (real-audit context) can invoke with `--include-low` or `--full` and the skill restores them to `findings[]`.
 
-2. **Root-cause consolidation** (new in v0.5.1): after dedup, group by `(canonical_vulnerability_type, affected_file)`. If two or more findings share the same vulnerability_type in the same file but hit different functions, apply the **"could one PR fix all of them?"** test:
-   - If a single code change would resolve all of them (e.g., `executeTransfer` and `executeTokenTransfer` both missing a nonce, fixed by adding one shared nonce-check helper) → **consolidate into ONE finding**. Name the primary function in `affected_function` and list siblings in the `explanation` with "(also affects: fnA, fnB)".
-   - If the fixes are independent (e.g., reentrancy in `withdrawTo` vs access control missing on `setRate` — different fix patterns) → keep as separate findings.
+   **Schema-mismatch rule (v0.5.7)**: When the output schema required by the caller does NOT contain a `warnings` field (external benchmark schemas, narrow CI harnesses, reports that only accept a flat `findings[]` array), LOW and INFO findings MUST be **dropped entirely** — do NOT flatten them into `findings[]` to preserve the observation. Flattening converts hardening notes into false positives against every scoring rubric that penalizes unmatched findings. The binding rule: if LOW/INFO cannot be emitted to `warnings[]`, they cannot be emitted at all. The `--include-low` / `--full` flags remain the only way to surface LOW/INFO into `findings[]`, and even then the caller is explicitly opting in to the FP risk. Detecting schema mismatch: if the output format specification (e.g., `program.md`, API contract, JSON schema) enumerates allowed top-level fields and `warnings` is not among them, the schema-mismatch rule applies.
+
+2. **Root-cause consolidation** (new in v0.5.1, shared-check rule added v0.5.7): after dedup, group by `(canonical_vulnerability_type, affected_file)`. If two or more findings share the same vulnerability_type in the same file but hit different functions, apply these two tests in order:
+
+   **(a) Shared-check mechanical rule (v0.5.7) — apply FIRST**: If the fix for each finding in the group is adding the SAME named check (same `require`/`assert`/modifier invocation, same validated variable or flag) — e.g. all N findings fixed by adding `require(!disputed)`, or all N fixed by adding the same `nonce` mapping check, or all N fixed by adding the same `onlyOwner` modifier — **consolidate into ONE finding**. Name the primary function in `affected_function`; list all siblings in `explanation` with `(also affects: fnA, fnB)`. The title generalises to the missing check, not the function name (e.g. "Missing !disputed check across settlement functions" rather than "refund lacks disputed check"). **Different function names alone are not grounds to keep separate** when the missing check is identical across the group.
+
+   **(b) "Could one PR fix all of them?" test**: if the shared-check rule doesn't fire but a single code change would still resolve all findings (e.g., `executeTransfer` and `executeTokenTransfer` both missing a nonce, fixed by adding one shared nonce-check helper) → **consolidate**.
+
+   If neither (a) nor (b) applies — fixes are genuinely independent (e.g., reentrancy in `withdrawTo` vs access control missing on `setRate` — different fix patterns) → keep as separate findings.
 3. The highest-severity finding wins each consolidated slot.
 4. Output a single JSON object matching the schema below. By default, no prose around it, no markdown fences. (If the user explicitly asked for a Markdown report, render the same content as a Markdown report — see the Markdown variant at the bottom.)
 
@@ -435,7 +441,7 @@ After all three gates (A, B, C):
 ### Field rules
 
 - `scanner` is always `"drozer-lite"`.
-- `version` is `"0.5.6"`.
+- `version` is `"0.5.7"`.
 - `vulnerability_type` MUST be a snake_case canonical tag from the vocabulary at the bottom of this file. **You MUST pick the closest existing tag**; paraphrasing (e.g. writing `"tx.origin authorization"` when the canonical tag is `tx_origin_auth`) is NOT allowed. The vocabulary aligns with SWC Registry and Code4rena taxonomy — labels like `tx_origin_auth`, `missing_access_control`, `missing_input_validation`, `checks_effects_interactions_violation`, `signature_replay`, `reentrancy`, `oracle_staleness`, `division_by_zero`, `missing_timelock` are industry-standard and should match what external scorers and graders expect. Only if the vocabulary genuinely has no close match may you fall back to a short snake_case description — and that is an extraordinary case that should be flagged with a `warnings` entry.
 - `severity` is exactly one of `CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, `INFO`. Uppercase.
 - `confidence` is exactly one of `HIGH`, `MEDIUM`, `LOW`. Uppercase.
@@ -495,8 +501,8 @@ These are the snake_case tags. Each tag has a fixed meaning and an optional SWC/
 | Alias (do NOT emit) | Canonical (emit this) | Reason |
 |---|---|---|
 | `tx_origin_auth` | `tx_origin_authentication` | SWC-115 / Code4rena / Sherlock use the unabbreviated form |
-| `reentrancy` (when only CEI ordering is wrong; no proven re-entrant callback needed for the exploit) | `checks_effects_interactions_violation` | Default tag per discriminator in Reentrancy section below |
-| `cei_violation` | `checks_effects_interactions_violation` | Abbreviation; same underlying canonical |
+| `reentrancy` (when the fix involves reordering state updates before the external call, with OR without adding a guard) | `checks_effects_interactions_violation` | Default tag per broadened discriminator in Reentrancy section below — covers callback-reentry drains too |
+| `cei_violation` / `cei_bug` / `state_update_after_call` | `checks_effects_interactions_violation` | Abbreviations / alternate framings of the same canonical |
 | `no_access_control` | `missing_access_control` | SWC-105 unabbreviated |
 | `no_input_validation` / `input_validation_missing` | `missing_input_validation` | SWC-123 unabbreviated, consistent with other `missing_*` tags |
 | `sig_replay` / `signature_replayable` | `signature_replay` | SWC-121 unabbreviated |
@@ -508,8 +514,8 @@ These are the snake_case tags. Each tag has a fixed meaning and an optional SWC/
 If your chosen tag is NOT in the left column and ALSO not in the canonical list further below, write a short snake_case fallback AND add a `warnings[]` entry `"novel_vulnerability_type: <tag> | <one-line reason no canonical fits>"` so the gap is visible for future vocabulary updates.
 
 ### Reentrancy / external call ordering
-- `checks_effects_interactions_violation` — External call (or token transfer) executes BEFORE the function updates the state the call's safety depends on. This is the underlying anti-pattern that enables reentrancy and similar timing exploits. **Default tag for any CEI-ordering bug** — pick this unless the proven exploit path specifically requires a re-entrant callback to drain. (SWC-107)
-- `reentrancy` — External call passes execution to an attacker-controlled callback that re-enters the same contract (or a related contract sharing state) and exploits mid-execution state. Use ONLY when the proven exploit requires the re-entrant callback path, not just CEI ordering being wrong. (SWC-107, CWE-841)
+- `checks_effects_interactions_violation` — **Default tag for any bug whose fix is "update state BEFORE the external call / token transfer".** Covers classic CEI violations (refund before update, balance transfer before zeroing, cap check before increment) **and** callback-reentrant drains where the callback exploit is possible only because state is updated after the call. If reordering the function body to Checks → Effects → Interactions would eliminate the exploit, emit this tag. (SWC-107)
+- `reentrancy` — Use ONLY for exploits that persist even with correct CEI ordering within the vulnerable function. This is cross-function reentrancy, shared-state reentry across multiple contracts, or callback-mediated state corruption where the ordering inside any single function is fine but the state invariant across functions is not. If the fix is "add `nonReentrant`" alone (ordering is already correct) → `reentrancy`. If the fix is "reorder state update before external call" (with or without adding a guard) → `checks_effects_interactions_violation`. (SWC-107, CWE-841)
 - `cross_function_reentrancy` — State changed in one function is read inconsistently in another via callback. (SWC-107)
 - `callback_hook_reentrancy` — ERC777/721/1155 receiver hook reenters before state finalization. (SWC-107)
 

@@ -1,5 +1,47 @@
 # Changelog
 
+## v0.5.7 — Broadened CEI discriminator, schema-mismatch LOW drop, shared-check consolidation (2026-04-19)
+
+**Headline**: Three targeted prompt-level fixes derived from cross-run per-finding analysis. All three convert advisory prose into mechanically checkable rules at the emit step without introducing worksheet-level agent judgment. Follows the v0.5.6 design principle: mechanical lookups and string-level tests work; agent-judgment gates don't.
+
+### What changed
+
+1. **Broadened CEI discriminator** in the Reentrancy / external call ordering vocabulary section. Previously, `checks_effects_interactions_violation` was marked "default tag unless the proven exploit path specifically requires a re-entrant callback to drain." In cross-run analysis, this discriminator sent callback-reentry drains to the `reentrancy` tag while external scoring rubrics consistently expect `checks_effects_interactions_violation` for ANY bug whose fix is "update state before the external call" — regardless of whether a callback was involved. The new discriminator: if reordering the function body to Checks → Effects → Interactions eliminates the exploit, emit `checks_effects_interactions_violation`. `reentrancy` is reserved for exploits that persist even with correct CEI ordering (cross-function reentrancy, shared-state reentry). The alias table entry for `reentrancy` → `checks_effects_interactions_violation` was expanded to match the new discriminator.
+
+2. **Schema-mismatch LOW drop rule** added to Step 7 rule 1a (severity-tier output filter). The v0.5.1 rule sends LOW and INFO findings to `warnings[]`, but when the output schema does not contain a `warnings` field (external benchmark schemas, narrow CI harnesses accepting only `findings[]`), agents were observed flattening LOW/INFO into `findings[]` to preserve the observation — converting hardening notes into false positives against the scoring rubric. The new rule: when the output schema has no `warnings` field, LOW/INFO findings MUST be dropped entirely. Do not flatten. Detection is mechanical: if the output format specification (program.md, JSON schema, API contract) enumerates allowed fields and `warnings` is not among them, the rule applies.
+
+3. **Shared-check consolidation mechanical shortcut** added to Step 7.2 root-cause consolidation. The v0.5.1 "could one PR fix all of them?" test requires agent judgment about whether fixes are "the same" — cross-run analysis showed agents inconsistently classified siblings that add the same missing check. The new Rule 2(a) fires BEFORE the PR test: if N findings' fixes all add the SAME named check (same `require`/`assert`/modifier/validated variable) — e.g. all N fixed by adding `require(!disputed)`, or all N adding the same missing nonce mapping — consolidate automatically. "Different function names alone are not grounds to keep separate" when the missing check is identical. The title generalises to the missing check, not any single function.
+
+### Why these are not worksheet-level enforcements
+
+Each of the three changes produces a mechanical test at emit time:
+
+- Change 1: string-level tag rewrite (same class as the v0.5.5 alias table that survived).
+- Change 2: schema introspection (is `warnings` in the allowed fields?) → conditional drop.
+- Change 3: name equality test (is the missing check's identifier the same across the group?) → consolidate.
+
+None ask the agent to self-classify evidence, re-read worksheets, or judge "would a PR fix this" — the three gates that v0.5.5 introduced and v0.5.6 reverted. Each new rule is an extension of an existing mechanical rule (alias rewrite, severity-tier filter, dedup grouping).
+
+### Anti-bloat audit
+
+| Change | Type | Lines | Files modified |
+|---|---|---|---|
+| Broaden CEI discriminator | extend | ~4 | SKILL.md |
+| Expand alias table entry | extend | ~1 | SKILL.md |
+| Schema-mismatch rule | extend | ~3 | SKILL.md |
+| Shared-check consolidation rule 2(a) | extend | ~5 | SKILL.md |
+| Version bump + CHANGELOG | edit | +~40 | SKILL.md, CHANGELOG.md |
+| **Total** | — | **~+13 net in SKILL.md** | **2 files** |
+
+No new checklists. No new worksheet fields. No new steps. All four changes extend existing prose rules with mechanical tests.
+
+### What is NOT being attempted in v0.5.7
+
+- No new vulnerability patterns. Checklists unchanged.
+- No pattern-specific allowlists or denylists.
+- No worksheet-level enforcement (v0.5.3 and v0.5.5 both failed this way; the v0.5.4/v0.5.6 CHANGELOGs document why).
+- No second-agent review. Still the known residual gap.
+
 ## v0.5.6 — Revert v0.5.5 worksheet extensions; keep alias canonicalization only (2026-04-19)
 
 **Headline**: Three of the four v0.5.5 changes were worksheet-level enforcement additions that single-agent runs demonstrably did not engage — cross-run validation showed the `warnings[]` telemetry that the new rules were designed to emit was always empty, indicating agents skipped the mechanics entirely. The regression pattern is identical to v0.5.3: adding single-agent worksheet strictness predicts regressions, and the v0.5.4 CHANGELOG already documented this. v0.5.6 reverts the three non-engaging changes and keeps only the alias canonicalization table, which is a mechanical string rewrite and demonstrated clean wins without side effects.
