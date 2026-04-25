@@ -2,8 +2,6 @@
 
 Open-source Claude Code skill for pattern-level smart contract vulnerability scanning.
 
-Supports **Solidity, Rust (Anchor/CosmWasm/IC), Move (Aptos/Sui/Initia), Cairo (StarkNet), Canton(Daml) and Vyper**.
-
 205 checks across 14 profiles. Runs inside your Claude Code session — no extra API key, no install.
 
 ## Install
