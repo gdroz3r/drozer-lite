@@ -4,6 +4,8 @@ Open-source Claude Code skill for pattern-level smart contract vulnerability sca
 
 205 checks across 14 profiles. Runs inside your Claude Code session — no extra API key, no install.
 
+[Forefy Benchmark](https://forefy.com/benchmarks/f93b6ea6-8a43-40ba-83b0-21522e62471a)
+
 ## Install
 
 ```bash
